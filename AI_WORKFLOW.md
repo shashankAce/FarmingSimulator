@@ -125,7 +125,7 @@ Map what you're trying to build to the doc to read **first**:
 | Show an image / textured quad | `skills/rendering/sprite.md` |
 | Play a sprite-sheet animation | `skills/rendering/sprite-animation.md` |
 | Draw shapes/lines (not an image) | `skills/rendering/graphics.md` |
-| Draw a rectangle/color fill | `skills/rendering/rect.md` |
+| Draw a rectangle/color fill | `skills/rendering/color-rect.md` |
 | Show text (regular font) | `skills/rendering/label.md` |
 | Show text with mixed styles/tags | `skills/rendering/richtext.md` |
 | Show text with a bitmap font | `skills/rendering/bitmaptext.md` |
@@ -133,8 +133,10 @@ Map what you're trying to build to the doc to read **first**:
 | A scratch-to-reveal effect | `skills/rendering/scratchcard.md` |
 | Particle effects (bursts, continuous emission, static particle fields) | `skills/rendering/particles.md` |
 | Load/manage images, atlases, fonts | `skills/assets/asset-cache.md` |
+| Load assets in stages (splash first, gameplay after) / per level / per screen | `skills/assets/batch-loader.md` |
 | Use a texture atlas / sprite sheet | `skills/assets/sprite-atlas.md` |
 | Use a bitmap (BMFont) font asset | `skills/assets/bitmap-font.md` |
+| Play a sound effect or background music (2D) | `skills/audio/audio.md` |
 | Auto-layout children (rows/columns/etc.) | `skills/layout/layout.md` |
 | Anchor/stretch UI to screen edges | `skills/layout/widget.md` |
 | A button | `skills/ui/button.md` |
@@ -158,8 +160,10 @@ Map what you're trying to build to the doc to read **first**:
 | 3D cameras & lights (only if scaffolded with `--3d`) | `skills/3d/lights-and-camera.md` |
 | Skinned/instanced/batched meshes, lines, points, billboards (only if scaffolded with `--3d`) | `skills/3d/advanced-meshes.md` |
 | 3D positional audio (only if scaffolded with `--3d`) | `skills/3d/audio3d.md` |
+| Delay/repeat a callback, custom events, resize/pause signals, screen↔game coords | `skills/core/timers-and-events.md` |
+| Frame-rate work — pooling spawned nodes, warming textures/text before a transition | `skills/core/performance.md` |
 | Vector/rect math, color parsing | `skills/core/math-and-color.md` |
-| Debug overlay, FPS/draw-call stats, on-screen console log | `skills/engine/debug-tools.md` |
+| Debug overlay, FPS/draw-call stats, on-screen console log | `skills/debug/debug-tools.md` |
 | Build/bundle-size concerns | `skills/build/build-and-check-size.md` |
 | Ship to Facebook Instant Games / Telegram / YouTube Playables (loading progress, ready signal, saves, scores) | `skills/build/platform-targets.md` |
 
@@ -167,6 +171,57 @@ If a topic isn't in this table, search `skills/` for it before guessing:
 ```
 grep -rl "keyword" skills/
 ```
+
+## Rule 2b — Whole-task recipes (when one row isn't enough)
+
+The table above is one row per feature. Real requests usually span several, and
+the failure mode is picking the single nearest row and stopping — you end up
+hand-rolling something the engine already has. If the request looks like one of
+these, read **all** the linked docs before writing code.
+
+### "Replicate this design / mockup / exported HTML page"
+
+Do not translate CSS to absolute-positioned nodes one box at a time. Map the
+design's *intent* onto the engine's own primitives first:
+
+| What the design does | Use |
+|---|---|
+| flex row/column, grid, evenly-spaced items | `Layout` — `skills/layout/layout.md` |
+| pinned to an edge/corner, stretches with the screen | `Widget` anchors — `skills/layout/widget.md` |
+| a panel/button background that scales without distorting its corners | `Sprite` with `SpriteType.SLICED` (set `borderLeft/Right/Top/Bottom`) — `skills/rendering/sprite.md` |
+| a repeating/patterned background | `SpriteType.TILED`, same doc |
+| a bar that fills or empties | `SpriteType.FILLED` + `fillType`/`fillRange`, or `skills/ui/progressbar.md` |
+| clipped/rounded content region, `overflow: hidden` | `Mask` — `skills/rendering/mask.md` |
+| a scrolling list or pane | `skills/ui/scrollview.md` (+ `skills/ui/scrollbar.md`) |
+| solid colour block | `ColorRect` — `skills/rendering/color-rect.md` |
+| gradients, strokes, custom shapes | `Graphics` — `skills/rendering/graphics.md` |
+| mixed inline styles in one text block | `RichText` — `skills/rendering/richtext.md` |
+| plain text | `Label` — `skills/rendering/label.md` (or `bitmaptext.md` for a bitmap font) |
+| a tappable element | `skills/ui/button.md`, not a raw click listener, when it needs states |
+
+Two rules that save the most rework: build the hierarchy with `Layout`/`Widget`
+rather than hard-coded coordinates, so it survives a resolution change; and use
+`SpriteType.SLICED` for every rounded-rect panel instead of exporting one image
+per size.
+
+### "Add a loading stage / splash screen / progress bar"
+
+Not one feature — four, and `assetCache.preloadAssets()` alone is the wrong
+answer for anything past a single flat list:
+
+1. `skills/assets/batch-loader.md` — `BatchLoader.preload(key, list, onProgress)`
+   groups assets by stage and de-duplicates concurrent requests. This is the
+   piece most often missed.
+2. `skills/ui/progressbar.md` (or a `FILLED` sprite) for the bar itself.
+3. `skills/scenes/creating-a-scene.md` for the scene swap once a stage resolves.
+4. `skills/build/platform-targets.md` if this ships to a host — the host has its
+   own loading bar, driven by `platform.reportProgress(p)`.
+
+### "Spawn a lot of things" (bullets, crops, coins, particles)
+
+`skills/core/performance.md` for `NodePool` first — then
+`skills/rendering/particles.md` if it's a visual effect rather than gameplay
+objects, and `skills/rendering/sprite-animation.md` if each one animates.
 
 ## Rule 3 — Verify by running the project, not by inspection alone
 

@@ -1,4 +1,5 @@
-import { GameEngine, Scene, Node, AssetItem, assetCache, Sprite, Label, createPlatform, ResolutionPolicy, RendererType } from 'noonengine';
+import { GameEngine, Scene, Node, AssetItem, assetCache, Sprite, Label, createPlatform, ResolutionPolicy, RendererType, InspectorOverlay, DEBUG } from 'noonengine';
+import { ThreeSceneSystem } from 'noonengine/3d';
 
 const GAME_WIDTH: number = 720;
 const GAME_HEIGHT: number = 1280;
@@ -14,6 +15,8 @@ await platform.initialize();  // must be awaited BEFORE constructing GameEngine
 
 const engine = new GameEngine({
     renderType: RendererType.WEBGL,
+    enable3D: true,
+    sceneSystem3D: ThreeSceneSystem,
     showStats: true,
 });
 
@@ -55,7 +58,9 @@ class MainScene extends Scene {
 
     update(dt: number): void { }
 }
-
+if (DEBUG) {
+    const inspectorOverlay = new InspectorOverlay(engine);
+}
 engine.setDesignResolution(GAME_WIDTH, GAME_HEIGHT, ResolutionPolicy.FIXED_HEIGHT);
 engine.runScene(new MainScene());
 engine.start();
