@@ -1,0 +1,37 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "allowJs": true,
+        "types": [
+            "node",
+            "@webgpu/types",
+            "vite/client"
+        ],
+        "skipLibCheck": true,
+        "strictNullChecks": false,
+        "allowImportingTsExtensions": true,
+        "noEmit": true,
+        "paths": {
+            "noonengine": [
+                "./engine/lib/index.js"
+            ],
+            "noonengine/3d": [
+                "./engine/lib/3d/index.js"
+            ],
+            "#3d-backend/*": [
+                "./engine/lib/3d/backends/three/*"
+            ],
+            "#3d-renderer": [
+                "./engine/lib/3d/backends/three/renderer.webgl.js"
+            ]
+        }
+    },
+    "include": [
+        "src/**/*"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}
