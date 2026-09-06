@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Lab — flour factory.fbx</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root {
+            color-scheme: dark;
+            --panel: rgba(18, 20, 24, 0.82);
+            --line: rgba(255, 255, 255, 0.12);
+            --text: #e8eaed;
+            --muted: #9aa0a6;
+            --accent: #8ab4f8;
+        }
+
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #16181d;
+            color: var(--text);
+            font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        canvas { display: block; }
+
+        .panel {
+            position: fixed;
+            background: var(--panel);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px 12px;
+            user-select: none;
+        }
+
+        #controls { top: 12px; left: 12px; width: 190px; }
+        #info { bottom: 12px; left: 12px; min-width: 190px; }
+
+        h1 {
+            font-size: 12px;
+            font-weight: 600;
+            margin: 0 0 8px;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 3px 0;
+            cursor: pointer;
+            color: var(--muted);
+        }
+
+        label:hover { color: var(--text); }
+        input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+
+        button {
+            width: 100%;
+            margin-top: 8px;
+            padding: 5px;
+            font: inherit;
+            color: var(--text);
+            background: rgba(255, 255, 255, .07);
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover { background: rgba(255, 255, 255, .13); }
+
+        dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+        dt { color: var(--muted); }
+        dd { margin: 0; text-align: right; }
+
+        #hint {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            color: var(--muted);
+            opacity: .7;
+        }
+
+        #status {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-content: center;
+            text-align: center;
+            gap: 6px;
+            pointer-events: none;
+        }
+
+        #status.error { color: #f28b82; pointer-events: auto; max-width: 70ch; margin: auto; }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+
+<body>
+    <div id="status">loading res/models/flour factory.fbx …</div>
+
+    <div class="panel" id="controls" hidden>
+        <h1>flour factory</h1>
+        <label><input type="checkbox" id="tgl-rotate" checked> auto-rotate</label>
+        <label><input type="checkbox" id="tgl-grid" checked> grid + axes</label>
+        <label><input type="checkbox" id="tgl-wire"> wireframe</label>
+        <label><input type="checkbox" id="tgl-tex" checked> textures</label>
+        <label><input type="checkbox" id="tgl-bbox"> bounding box</label>
+        <button id="btn-reset">reset view</button>
+    </div>
+
+    <div class="panel" id="info" hidden>
+        <dl>
+            <dt>meshes</dt><dd id="i-meshes">–</dd>
+            <dt>triangles</dt><dd id="i-tris">–</dd>
+            <dt>materials</dt><dd id="i-mats">–</dd>
+            <dt>size x</dt><dd id="i-x">–</dd>
+            <dt>size y</dt><dd id="i-y">–</dd>
+            <dt>size z</dt><dd id="i-z">–</dd>
+        </dl>
+    </div>
+
+    <div id="hint" hidden>drag = orbit · scroll = zoom · right-drag = pan</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+        const MODEL = '/res/models/flour factory.fbx';
+        // The FBX bakes in absolute Windows texture paths ("C:/Users/.../sourceimages/
+        // texture.jpg"), so FBXLoader is pointed at the real folder and resolves each
+        // reference by filename against it.
+        const TEXTURE_DIR = '/res/models/sourceimages/';
+
+        const $ = id => document.getElementById(id);
+        const status = $('status');
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x16181d);
+
+        const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100000);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.autoRotateSpeed = 1.2;
+
+        scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x3a3529, 2.2));
+        const sun = new THREE.DirectionalLight(0xfff3e0, 2.4);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        scene.add(sun);
+        const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+        fill.position.set(-1, 0.6, -1);
+        scene.add(fill);
+
+        const helpers = new THREE.Group();
+        scene.add(helpers);
+
+        let boxHelper = null;
+        const meshes = [];
+        // Kept so the texture toggle can put each map back after clearing it.
+        const originalMaps = new Map();
+        let home = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+
+        new FBXLoader()
+            .setResourcePath(TEXTURE_DIR)
+            .load(MODEL, onLoad, onProgress, onError);
+
+        function onLoad(model) {
+            scene.add(model);
+
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const span = Math.max(size.x, size.y, size.z) || 1;
+
+            // Sit the model on the grid and centre it on the origin, so framing and
+            // the ground plane work regardless of where the DCC tool left the pivot.
+            model.position.sub(new THREE.Vector3(center.x, box.min.y, center.z));
+
+            let tris = 0;
+            const materials = new Set();
+            model.traverse(o => {
+                if (!o.isMesh) return;
+                o.castShadow = o.receiveShadow = true;
+                meshes.push(o);
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                for (const m of mats) {
+                    if (!m) continue;
+                    materials.add(m);
+                    // Maya lamberts export as MeshPhongMaterial with a black diffuse
+                    // (Kd 0 0 0 in the .mtl) — keep them visible when a map is missing.
+                    if (m.color && m.color.getHex() === 0x000000 && !m.map) m.color.setHex(0x9a9a9a);
+                    if (!originalMaps.has(m)) originalMaps.set(m, m.map || null);
+                    m.side = THREE.DoubleSide;
+                }
+                const g = o.geometry;
+                if (g) tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+            });
+
+            buildHelpers(span);
+
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(span * 6, span * 6),
+                new THREE.ShadowMaterial({ opacity: 0.28 })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            sun.position.set(span, span * 1.5, span * 0.8);
+            sun.shadow.camera.near = 0.5;
+            sun.shadow.camera.far = span * 6;
+            const s = span * 1.2;
+            Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s });
+            sun.shadow.camera.updateProjectionMatrix();
+
+            boxHelper = new THREE.Box3Helper(new THREE.Box3().setFromObject(model), 0x8ab4f8);
+            boxHelper.visible = false;
+            scene.add(boxHelper);
+
+            frameCamera(span, size.y);
+
+            $('i-meshes').textContent = meshes.length;
+            $('i-tris').textContent = Math.round(tris).toLocaleString();
+            $('i-mats').textContent = materials.size;
+            $('i-x').textContent = size.x.toFixed(1);
+            $('i-y').textContent = size.y.toFixed(1);
+            $('i-z').textContent = size.z.toFixed(1);
+
+            status.hidden = true;
+            for (const el of ['controls', 'info', 'hint']) $(el).hidden = false;
+        }
+
+        function buildHelpers(span) {
+            // Round the grid to a sane power-of-ten step for the model's scale, so the
+            // divisions stay readable whether the units are metres or centimetres.
+            const step = Math.pow(10, Math.round(Math.log10(span / 10)));
+            const extent = Math.ceil(span * 1.5 / step) * step;
+            helpers.add(new THREE.GridHelper(extent * 2, (extent * 2) / step, 0x555b66, 0x2c3138));
+            helpers.add(new THREE.AxesHelper(span * 0.6));
+        }
+
+        function frameCamera(span, height) {
+            const dist = span / (2 * Math.tan((camera.fov * Math.PI / 180) / 2)) * 1.4;
+            home.target.set(0, height * 0.45, 0);
+            home.pos.set(dist * 0.75, dist * 0.55 + height * 0.4, dist * 0.75);
+            camera.near = span / 500;
+            camera.far = span * 50;
+            camera.updateProjectionMatrix();
+            resetView();
+        }
+
+        function resetView() {
+            camera.position.copy(home.pos);
+            controls.target.copy(home.target);
+            controls.update();
+        }
+
+        function onProgress(e) {
+            if (e.lengthComputable) {
+                status.textContent = `loading flour factory.fbx — ${Math.round(e.loaded / e.total * 100)}%`;
+            }
+        }
+
+        function onError(err) {
+            console.error(err);
+            status.className = 'error';
+            status.textContent = `Failed to load ${MODEL}\n${err?.message || err}`;
+        }
+
+        $('tgl-rotate').onchange = e => controls.autoRotate = e.target.checked;
+        $('tgl-grid').onchange = e => helpers.visible = e.target.checked;
+        $('tgl-bbox').onchange = e => { if (boxHelper) boxHelper.visible = e.target.checked; };
+        $('btn-reset').onclick = resetView;
+
+        $('tgl-wire').onchange = e => forEachMaterial(m => m.wireframe = e.target.checked);
+        $('tgl-tex').onchange = e => forEachMaterial(m => {
+            m.map = e.target.checked ? originalMaps.get(m) : null;
+            m.needsUpdate = true;
+        });
+
+        function forEachMaterial(fn) {
+            for (const mesh of meshes) {
+                for (const m of (Array.isArray(mesh.material) ? mesh.material : [mesh.material])) {
+                    if (m) fn(m);
+                }
+            }
+        }
+
+        controls.autoRotate = true;
+
+        addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+
+        renderer.setAnimationLoop(() => {
+            controls.update();
+            renderer.render(scene, camera);
+        });
+    </script>
+</body>
+
+</html>
