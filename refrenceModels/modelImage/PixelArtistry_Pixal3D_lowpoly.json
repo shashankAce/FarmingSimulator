@@ -1676,10 +1676,10 @@
         "Node name for S&R": "Trellis2UpsampleStage"
       },
       "widgets_values": [
-        "512"
+        "1536"
       ],
       "widgets_values_named": {
-        "target_resolution": "512"
+        "target_resolution": "1536"
       },
       "color": "#332922",
       "bgcolor": "#593930"
@@ -1799,7 +1799,7 @@
       ],
       "flags": {},
       "order": 60,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "images",
@@ -1831,7 +1831,7 @@
       ],
       "flags": {},
       "order": 61,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "images",
