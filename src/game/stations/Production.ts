@@ -3,7 +3,10 @@ import { MACHINE, STATIONS } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, cyl } from '../procgen/Primitives.ts';
 import { BELT_Y, makeBottle, makeConveyor, makeJuicer } from '../procgen/Machines.ts';
-import { RACK_CAPACITY, makeBottleRack, makeRackStandFrame } from '../procgen/Containers.ts';
+import {
+    CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, LOOSE_BOTTLE_SCALE, RACK_CAPACITY,
+    makeBottleRack, makeRackStandFrame,
+} from '../procgen/Containers.ts';
 import type { GameState } from '../GameState.ts';
 
 interface BeltBottle {
@@ -17,12 +20,18 @@ interface StandRack {
     group: THREE.Group;
     slots: THREE.Vector3[];
     bottles: THREE.Group[];
-    /** Position along the stand, 0..STAND_SLOTS-1. */
+    /** Position along the stand, 0..rackStandSlots-1. */
     index: number;
+    /** Height within that position's stack, 0 = on the trestle. */
+    level: number;
 }
 
-/** How many racks the stand holds before the juicer has to stall. */
-const STAND_SLOTS = 3;
+const STAND_SLOTS = MACHINE.rackStandSlots;
+const STACK_LIMIT = MACHINE.rackStackLimit;
+/** Trestle surface the bottom crate of each stack rests on. */
+const TRESTLE_Y = 0.93;
+/** Spacing between stand positions, matched to the shared crate scale. */
+const SLOT_PITCH = 1.35 * CRATE_SCALE;
 
 /**
  * The juicer → conveyor → rack chain.
@@ -48,6 +57,11 @@ export class Production {
     private _pool: THREE.Group[] = [];
     private _rackPool: Array<{ group: THREE.Group; slots: THREE.Vector3[] }> = [];
     private _processTimer = 0;
+    /**
+     * Seconds per bottle. Mutable because the juicer speed upgrade rewrites it —
+     * `MACHINE.processTime` is only the starting value.
+     */
+    processTime = MACHINE.processTime;
     private _working = false;
     private _wheelSpin = 0;
 
@@ -88,7 +102,7 @@ export class Production {
     }
 
     /** Total bottle capacity of the stand, for the HUD readout. */
-    get rackCapacity(): number { return STAND_SLOTS * RACK_CAPACITY; }
+    get rackCapacity(): number { return STAND_SLOTS * STACK_LIMIT * RACK_CAPACITY; }
 
     /** Bottles currently racked, across every rack on the stand. */
     get rackCount(): number {
@@ -109,12 +123,19 @@ export class Production {
     /** True while there's somewhere for the next bottle to go. */
     get hasRoom(): boolean {
         const racked = this.rackCount + this._beltBottles.length;
-        return racked < STAND_SLOTS * RACK_CAPACITY;
+        return racked < this.rackCapacity;
     }
 
-    /** Called when a character tips a carrot into the hopper. */
+    /**
+     * Called when a character tips a carrot into the hopper.
+     *
+     * ALWAYS accepts. Gating intake on rack space deadlocked the game: a player
+     * holding carrots with a full stand could neither tip them in nor pick up a
+     * rack (a load is one kind at a time), leaving them stuck with nowhere to
+     * put anything. Back-pressure belongs at the bottling step instead, where
+     * carrots simply queue in the hopper until a crate frees up.
+     */
     acceptCarrot(): boolean {
-        if (!this.hasRoom) return false;
         this._state.carrotsQueued++;
         // Bounce the funnel so the drop registers visually.
         this._funnel.scale.set(1.16, 0.86, 1.16);
@@ -131,10 +152,16 @@ export class Production {
      * full would stall the player behind the juicer for no good reason.
      */
     takeRack(): number {
+        // Only whatever is on TOP of each stack can be lifted off.
+        const topLevel = new Array<number>(STAND_SLOTS).fill(-1);
+        for (const r of this._racks) topLevel[r.index] = Math.max(topLevel[r.index], r.level);
+
         let best = -1;
         for (let i = 0; i < this._racks.length; i++) {
-            if (this._racks[i].bottles.length === 0) continue;
-            if (best < 0 || this._racks[i].bottles.length > this._racks[best].bottles.length) best = i;
+            const r = this._racks[i];
+            if (r.bottles.length === 0) continue;
+            if (r.level !== topLevel[r.index]) continue;
+            if (best < 0 || r.bottles.length > this._racks[best].bottles.length) best = i;
         }
         if (best < 0) return 0;
 
@@ -164,8 +191,8 @@ export class Production {
         }
 
         this._processTimer += dt;
-        if (this._processTimer < MACHINE.processTime) return;
-        this._processTimer -= MACHINE.processTime;
+        if (this._processTimer < this.processTime) return;
+        this._processTimer -= this.processTime;
 
         this._state.carrotsQueued--;
         this._spawnBeltBottle();
@@ -174,7 +201,9 @@ export class Production {
     private _spawnBeltBottle(): void {
         const obj = this._pool.pop() ?? makeBottle();
         obj.visible = true;
-        obj.scale.setScalar(1);
+        // Same on-screen size as one sitting in a crate, so a bottle doesn't
+        // appear to shrink the moment it's racked.
+        obj.scale.setScalar(LOOSE_BOTTLE_SCALE);
         obj.position.set(STATIONS.conveyor.x0, BELT_Y + 0.07, STATIONS.conveyor.z);
         this.group.add(obj);
         this._beltBottles.push({ obj, t: 0 });
@@ -209,34 +238,46 @@ export class Production {
         const slot = rack.slots[rack.bottles.length];
         obj.position.copy(slot);
         obj.rotation.set(0, 0, 0);
-        obj.scale.setScalar(0.78);
+        obj.scale.setScalar(CONTENT_SCALE.bottle);
         this.group.remove(obj);
         rack.group.add(obj);
         rack.bottles.push(obj);
         this._state.bottlesStocked = this.rackCount;
     }
 
-    /** The first rack with a free slot, opening a new one on the stand if needed. */
+    /**
+     * The first rack with a free bottle slot, opening a new crate if needed.
+     * New crates spread across the stand's positions before stacking upward, so
+     * the stand fills left-to-right rather than growing one tall tower.
+     */
     private _openRack(): StandRack | null {
         for (const r of this._racks) {
             if (r.bottles.length < r.slots.length) return r;
         }
-        if (this._racks.length >= STAND_SLOTS) return null;
 
-        const used = new Set(this._racks.map(r => r.index));
-        let index = 0;
-        while (used.has(index) && index < STAND_SLOTS) index++;
+        // Depth of each position's stack; pick the shallowest with room.
+        const depth = new Array<number>(STAND_SLOTS).fill(0);
+        for (const r of this._racks) depth[r.index]++;
 
+        let index = -1;
+        for (let i = 0; i < STAND_SLOTS; i++) {
+            if (depth[i] >= STACK_LIMIT) continue;
+            if (index < 0 || depth[i] < depth[index]) index = i;
+        }
+        if (index < 0) return null;
+
+        const level = depth[index];
         const built = this._rackPool.pop() ?? makeBottleRack();
         built.group.visible = true;
+        built.group.scale.setScalar(CRATE_SCALE);
         built.group.position.set(
-            this._rackOrigin.x + (index - (STAND_SLOTS - 1) / 2) * 1.35,
-            0.92,
+            this._rackOrigin.x + (index - (STAND_SLOTS - 1) / 2) * SLOT_PITCH,
+            TRESTLE_Y + level * CRATE_PITCH.bottle * CRATE_SCALE,
             this._rackOrigin.z,
         );
         this.group.add(built.group);
 
-        const rack: StandRack = { group: built.group, slots: built.slots, bottles: [], index };
+        const rack: StandRack = { group: built.group, slots: built.slots, bottles: [], index, level };
         this._racks.push(rack);
         return rack;
     }
@@ -249,6 +290,7 @@ export class Production {
         rack.bottles.length = 0;
         this.group.remove(rack.group);
         rack.group.visible = false;
+        rack.group.scale.setScalar(1);
         this._rackPool.push({ group: rack.group, slots: rack.slots });
     }
 

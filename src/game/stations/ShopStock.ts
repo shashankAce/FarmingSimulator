@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RACK_CAPACITY, makeBottleRack } from '../procgen/Containers.ts';
+import { CONTENT_SCALE, CRATE_SCALE, RACK_CAPACITY, makeBottleRack } from '../procgen/Containers.ts';
 import { makeBottle } from '../procgen/Machines.ts';
 
 interface GroundRack {
@@ -53,7 +53,7 @@ export class ShopStock {
 
         // Racks line up alongside each other, angled with the stall.
         const index = this._racks.length;
-        const offset = (index - (this._maxRacks - 1) / 2) * 1.45;
+        const offset = (index - (this._maxRacks - 1) / 2) * (1.45 * CRATE_SCALE);
         built.group.position.set(
             this._origin.x + Math.cos(this._yaw) * offset,
             0,
@@ -67,7 +67,7 @@ export class ShopStock {
             const b = this._bottlePool.pop() ?? makeBottle();
             b.visible = true;
             b.position.copy(rack.slots[i]);
-            b.scale.setScalar(0.78);
+            b.scale.setScalar(CONTENT_SCALE.bottle);
             rack.group.add(b);
             rack.bottles.push(b);
         }
@@ -105,15 +105,15 @@ export class ShopStock {
             const s = this._spring[i];
             s.t = Math.min(1, s.t + dt * 7);
             const p = s.t;
-            s.g.scale.setScalar(Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)));
-            if (s.t >= 1) { s.g.scale.setScalar(1); this._spring.splice(i, 1); }
+            s.g.scale.setScalar(Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)) * CRATE_SCALE);
+            if (s.t >= 1) { s.g.scale.setScalar(CRATE_SCALE); this._spring.splice(i, 1); }
         }
     }
 
     /** Shuffles the remaining racks up after one is emptied. */
     private _relayout(): void {
         for (let i = 0; i < this._racks.length; i++) {
-            const offset = (i - (this._maxRacks - 1) / 2) * 1.45;
+            const offset = (i - (this._maxRacks - 1) / 2) * (1.45 * CRATE_SCALE);
             this._racks[i].group.position.set(
                 this._origin.x + Math.cos(this._yaw) * offset,
                 0,

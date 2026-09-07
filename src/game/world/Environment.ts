@@ -37,7 +37,9 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
     // rendering bug rather than as ground variation.
     for (let i = 0; i < V.grassPatches.count; i++) {
         const patch = disc(rangeOf(rng, V.grassPatches.minR, V.grassPatches.maxR), C.GRASS_DARK, 12, { flat: false });
-        patch.receiveShadow = false;
+        // Must receive: these sit ABOVE the ground plane, so without this they
+        // punch un-shadowed holes through anything cast onto the grass.
+        patch.receiveShadow = true;
         patch.castShadow = false;
         const sp = V.grassPatches.spread;
         at(patch, rangeOf(rng, -sp, sp), 0.015, rangeOf(rng, -sp, sp));

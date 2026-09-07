@@ -107,9 +107,18 @@ export class FarmerAssistant extends Assistant {
 /** Carries bottles to the shop, sells them, and collects the payout. */
 export class SellerAssistant extends Assistant {
     private _phase: SellerPhase = 'to-rack';
+    /** The stall this one was hired at; it works that counter and no other. */
+    private _homeIndex: number;
 
-    constructor(scene: Scene, ctx: FarmContext) {
+    constructor(scene: Scene, ctx: FarmContext, homeIndex: number) {
         super(scene, ctx, SELLER_COLORS, STATIONS.rackPickup.x, STATIONS.rackPickup.z + 3);
+        this._homeIndex = homeIndex;
+    }
+
+    /** Its own stall while that is open, otherwise whichever open one is nearest. */
+    private get _stand() {
+        const home = this.ctx.shops.stands[this._homeIndex];
+        return home?.isOpen ? home : this.ctx.shops.nearestOpen(this.x, this.z);
     }
 
     update(dt: number): void {
@@ -136,7 +145,7 @@ export class SellerAssistant extends Assistant {
                 break;
             }
             case 'to-shop': {
-                const stand = this.ctx.shops.nearestOpen(this.x, this.z);
+                const stand = this._stand;
                 if (!stand) { this.setMove(0, 0); break; }   // nothing open yet — hold the load
                 if (this.moveToward(stand.sellPad.x, stand.sellPad.z, 1.2)) this._phase = 'selling';
                 break;

@@ -1,5 +1,4 @@
 import { EventDispatcher } from 'noonengine';
-import { ECONOMY } from './Config.ts';
 
 /** Progression gates, in the order the player unlocks them. */
 export type Objective =
@@ -25,8 +24,11 @@ export class GameState {
 
     /** Set once the starting cash has been picked up. */
     shopBuilt = false;
-    farmerHired = false;
-    sellerHired = false;
+    /** Staff on the payroll — one of each may be hired per shop. */
+    farmhands = 0;
+    shopkeepers = 0;
+    /** Juicer speed tier; indexes `MACHINE_UPGRADE.processTime`. */
+    machineLevel = 0;
 
     /** Carrots waiting in the juicer's hopper. */
     carrotsQueued = 0;
@@ -35,15 +37,27 @@ export class GameState {
     /** Cash piles dropped beside the shop, waiting to be walked over. */
     pendingPayout = 0;
 
-    /** Progress toward each upgrade, paid gradually while standing on its pad. */
-    farmerPaid = 0;
-    sellerPaid = 0;
-
     /** Lifetime counters, for the HUD. */
     totalHarvested = 0;
     totalSold = 0;
 
     objective: Objective = 'collect-start-cash';
+
+    /**
+     * Objectives the player has actually finished (moved on FROM), not merely
+     * been shown. The ground arrow is a tutorial aid, so it retires once the
+     * core loop below has been completed once.
+     */
+    private _done = new Set<Objective>();
+
+    private static readonly TUTORIAL: readonly Objective[] = [
+        'collect-start-cash', 'harvest-carrots', 'deliver-carrots',
+        'collect-bottles', 'sell-bottles', 'collect-earnings',
+    ];
+
+    get tutorialDone(): boolean {
+        return GameState.TUTORIAL.every(step => this._done.has(step));
+    }
 
     get money(): number { return this._money; }
 
@@ -62,18 +76,13 @@ export class GameState {
 
     setObjective(next: Objective): void {
         if (this.objective === next) return;
+        // Moving off an objective is what counts as having done it.
+        this._done.add(this.objective);
         this.objective = next;
         this.events.dispatchEvent('objective', { objective: next });
     }
 
     toast(text: string): void {
         this.events.dispatchEvent('toast', { text });
-    }
-
-    /** Cost of the next upgrade the player hasn't bought, or null when fully upgraded. */
-    nextUpgradeCost(): number | null {
-        if (!this.farmerHired) return ECONOMY.farmerCost;
-        if (!this.sellerHired) return ECONOMY.sellerCost;
-        return null;
     }
 }

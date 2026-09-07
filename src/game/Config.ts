@@ -100,9 +100,6 @@ export const STATIONS = {
     rackPickup: { x: -14.4, z: 3.5, w: 3.8, d: 3.0, icon: 'bottle' as IconKind, showProgress: true },
     /** The rack stand sits just behind the pickup pad. */
     racks: { x: -14.4, z: 0 },
-    /** Upgrade pads. */
-    hireFarmer: { x: 0.5, z: -11.5, w: 3.4, d: 3.4, icon: 'hire' as IconKind, showProgress: true },
-    hireSeller: { x: -14.4, z: -5.5, w: 3.4, d: 3.4, icon: 'hire' as IconKind, showProgress: true },
 };
 
 /**
@@ -115,9 +112,15 @@ export const BLOCKERS = {
     juicer: { w: 4.7, d: 4.1 },
     /** Depth only; the span comes from `STATIONS.conveyor`. */
     conveyorDepth: 1.5,
-    rackStand: { w: 3.6, d: 1.4 },
-    /** Signposts are thin but solid — you should not walk through the billboard. */
-    signpost: { w: 2.5, d: 0.5 },
+    rackStand: { w: 2.8, d: 1.15 },
+    /**
+     * Reserved. Nothing places a signpost right now — prices are written on the
+     * grass beside their pad instead — but `makeSignpost()` is still available,
+     * and if it comes back this is the POST footprint, not the board. The board
+     * hangs overhead and you walk under it; its full width would wall off the
+     * approach to whatever the sign advertises.
+     */
+    signpost: { w: 0.36, d: 0.36 },
 };
 
 /**
@@ -202,6 +205,8 @@ export interface ShopPlacement {
     sellPad: { x: number; z: number };
     /** Where carried crates are set down beside the stall. */
     dropPad: { x: number; z: number };
+    /** Pad for hiring this stall's shopkeeper, on its other flank. */
+    hirePad: { x: number; z: number };
     /** The point shoppers turn to face. */
     counter: { x: number; z: number };
     queue: {
@@ -210,6 +215,10 @@ export interface ShopPlacement {
         spawn: { x: number; z: number };
         exit: { x: number; z: number };
     };
+    /** Unit vector along this stall's fence — handy for placing things beside it. */
+    alongDir: { x: number; z: number };
+    /** Unit vector pointing out across the fence, away from the yard. */
+    outDir: { x: number; z: number };
     /** Bunting runs along the fence, so it needs the fence's own heading. */
     bunting: { x: number; z: number; yaw: number };
     /** World-space footprint of the counter, for collision once open. */
@@ -243,6 +252,8 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         yaw: v.yaw,
         sellPad: off(stall, 0, -SHOP.sellDistance),
         dropPad: off(stall, SHOP.dropAlong, -SHOP.dropInward),
+        // Opposite flank from the drop, so crates and hiring never share space.
+        hirePad: off(stall, -SHOP.dropAlong, -SHOP.dropInward),
         counter: off(stall, 0, SHOP.counterOffset),
         queue: {
             slot0,
@@ -262,6 +273,8 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         // The counter is 5.0 along the fence by 1.0 across it, centred 1.15
         // outward of the stall origin. Sides are axis-aligned, so projecting the
         // local extents onto the world axes gives an exact AABB.
+        alongDir: { x: v.along.x, z: v.along.z },
+        outDir: { x: v.out.x, z: v.out.z },
         counterBox: {
             ...off(stall, 0, 1.15),
             w: Math.abs(v.along.x) * 5.2 + Math.abs(v.out.x) * 1.2,
@@ -367,6 +380,44 @@ export const VILLAGE = {
     grassPatches: { count: 30, minR: 2.5, maxR: 6.0, spread: 70 },
 };
 
+/**
+ * ─── HIRING & UPGRADES ───────────────────────────────────────────────────────
+ * One farmhand and one shopkeeper may be hired per shop, so the workforce
+ * scales with the business rather than being capped at one of each.
+ *
+ * Shopkeeper pads ride along with their stall (`ShopPlacement.hirePad`) and only
+ * appear once it is open — hiring staff for a shop that does not exist reads as
+ * a bug. Farmhand pads sit along the near edge of the field, clear of the
+ * tilled area itself.
+ */
+export const HIRE = {
+    /** Deliberately small: these pads sit among the working stations. */
+    padW: 1.7,
+    padD: 1.7,
+    /** Escalating price per additional hire, indexed by how many you already have. */
+    farmhandCosts: [250, 700, 1500],
+    shopkeeperCosts: [600, 1400, 2800],
+};
+
+/** Farmhand pads, laid out along the field's near edge. */
+export function farmhandPads(): Array<{ x: number; z: number }> {
+    const f = fieldBounds();
+    const z = f.maxZ + 2.2;
+    const span = f.maxX - f.minX;
+    return [0.22, 0.5, 0.78].map(t => ({ x: f.minX + span * t, z }));
+}
+
+/**
+ * Juicer speed upgrade. `processTime[level]` is the seconds per bottle; buying
+ * level N costs `costs[N - 1]`. Kept as a table rather than a formula so the
+ * curve can be tuned by eye.
+ */
+export const MACHINE_UPGRADE = {
+    pad: { x: -8.6, z: 3.6 },
+    processTime: [0.75, 0.52, 0.36, 0.24],
+    costs: [400, 1100, 2600],
+};
+
 export const PLAYER = {
     startX: -8,
     startZ: 14,
@@ -393,12 +444,21 @@ export const ECONOMY = {
 };
 
 export const MACHINE = {
-    /** Seconds the juicer takes to turn one carrot into one bottle. */
+    /** Starting seconds per bottle. The speed upgrade overwrites this at runtime
+     *  — see `MACHINE_UPGRADE.processTime`. */
     processTime: 0.75,
     /** How long a bottle takes to ride the belt end to end. */
     beltTime: 3.2,
     /** Seconds between one item transferring during a pickup/dropoff. */
     transferInterval: 0.11,
+    /** Rack positions along the production stand. */
+    rackStandSlots: 3,
+    /**
+     * Crates that may stack at ONE stand position. Raising this is the storage
+     * upgrade — total bottle capacity is
+     * `rackStandSlots * rackStackLimit * RACK_CAPACITY`.
+     */
+    rackStackLimit: 1,
 };
 
 /** Camera rig — a fixed offset that follows the player, giving the reference's ~50° tilt. */
@@ -444,11 +504,23 @@ export function validateLayout(): void {
         if (!inside(pad.x, pad.z)) warn(`STATIONS.${name} pad is outside YARD.`);
     }
 
+    for (const [i, pad] of farmhandPads().entries()) {
+        if (!inside(pad.x, pad.z)) warn(`farmhandPads()[${i}] is outside YARD.`);
+        const f = fieldBounds();
+        if (pad.x > f.minX && pad.x < f.maxX && pad.z > f.minZ && pad.z < f.maxZ) {
+            warn(`farmhandPads()[${i}] sits on top of the tilled field.`);
+        }
+    }
+    if (!inside(MACHINE_UPGRADE.pad.x, MACHINE_UPGRADE.pad.z)) {
+        warn('MACHINE_UPGRADE.pad is outside YARD.');
+    }
+
     SHOPS.forEach((cfg, i) => {
         const p = resolveShop(cfg);
         if (!inside(p.sellPad.x, p.sellPad.z)) {
             warn(`SHOPS[${i}] serving pad is outside YARD — raise SHOP.inset or move it along the fence.`);
         }
+        if (!inside(p.hirePad.x, p.hirePad.z)) warn(`SHOPS[${i}] hire pad is outside YARD.`);
         // Neighbours on the same fence need room for their queues.
         SHOPS.forEach((other, j) => {
             if (j <= i || other.side !== cfg.side) return;

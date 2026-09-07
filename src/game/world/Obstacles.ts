@@ -8,6 +8,8 @@ interface Box {
     z: number;
     halfW: number;
     halfD: number;
+    /** Disabled boxes are skipped by `resolve()` and hidden from the debug view. */
+    on: boolean;
 }
 
 /**
@@ -31,7 +33,19 @@ export class ObstacleField {
      * the construction plot becomes a counter.
      */
     add(x: number, z: number, w: number, d: number): number {
-        return this._boxes.push({ x, z, halfW: w / 2, halfD: d / 2 }) - 1;
+        return this._boxes.push({ x, z, halfW: w / 2, halfD: d / 2, on: true }) - 1;
+    }
+
+    /**
+     * Switches a footprint on or off.
+     *
+     * Any model whose visibility toggles MUST toggle its box too — an invisible
+     * wall you keep walking into is the worst kind of collider bug, and the one
+     * hidden signposts used to cause.
+     */
+    setEnabled(id: number, on: boolean): void {
+        const b = this._boxes[id];
+        if (b) b.on = on;
     }
 
     /** Reshapes a previously added footprint in place. */
@@ -64,6 +78,7 @@ export class ObstacleField {
             let moved = false;
 
             for (const b of this._boxes) {
+                if (!b.on) continue;
                 const dx = px - b.x;
                 const dz = pz - b.z;
                 const overlapX = b.halfW + radius - Math.abs(dx);
@@ -88,6 +103,7 @@ export class ObstacleField {
     /** True if a point is inside any footprint — used when placing things. */
     contains(x: number, z: number): boolean {
         for (const b of this._boxes) {
+            if (!b.on) continue;
             if (Math.abs(x - b.x) <= b.halfW && Math.abs(z - b.z) <= b.halfD) return true;
         }
         return false;
@@ -110,6 +126,7 @@ export class ObstacleField {
         const edge = new THREE.LineBasicMaterial({ color: 0xff5588, depthTest: false });
 
         for (const b of this._boxes) {
+            if (!b.on) continue;
             const geo = new THREE.BoxGeometry(b.halfW * 2, DEBUG_H, b.halfD * 2);
 
             const solid = new THREE.Mesh(geo, fill);

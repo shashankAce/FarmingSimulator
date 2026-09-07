@@ -12,6 +12,21 @@ import { at, box, rot } from './Primitives.ts';
  * basket is deliberately left open (see `makeCarrotBasket`).
  */
 
+/**
+ * One display scale for every crate, wherever it sits — carried, on the
+ * production stand, or set down at a shop. It is the carried size, because
+ * that's the one tuned against the character; anything else made the same
+ * object appear to change size as it moved between stations.
+ */
+export const CRATE_SCALE = 0.58;
+/** Contents scale, relative to the crate they sit in. */
+export const CONTENT_SCALE = { bottle: 0.78, carrot: 0.86 };
+/** Vertical pitch when crates are stacked, in crate-local units. Clears the
+ *  contents sticking out of the crate below. */
+export const CRATE_PITCH = { bottle: 0.86, carrot: 0.78 };
+/** World scale of a loose bottle, matched to one sitting in a crate. */
+export const LOOSE_BOTTLE_SCALE = CRATE_SCALE * CONTENT_SCALE.bottle;
+
 export const RACK_COLS = 3;
 export const RACK_ROWS = 2;
 export const RACK_CAPACITY = RACK_COLS * RACK_ROWS;
@@ -109,13 +124,14 @@ export function makeCarrotBasket(): { group: THREE.Group; slots: THREE.Vector3[]
 export function makeRackStandFrame(): THREE.Group {
     const g = new THREE.Group();
     // A trestle the finished racks sit on, matching the reference's low bench.
-    g.add(at(box(3.6, 0.14, 1.3, C.WOOD_LIGHT), 0, 0.86, 0));
-    for (const x of [-1.5, 1.5]) {
-        for (const z of [-0.5, 0.5]) {
-            g.add(at(rot(box(0.16, 0.9, 0.16, C.WOOD_DARK), 0, 0, z * 0.12), x, 0.45, z));
+    // Sized against CRATE_SCALE — a full-width bench dwarfs the crates on it.
+    g.add(at(box(2.7, 0.14, 1.05, C.WOOD_LIGHT), 0, 0.86, 0));
+    for (const x of [-1.05, 1.05]) {
+        for (const z of [-0.38, 0.38]) {
+            g.add(at(rot(box(0.15, 0.9, 0.15, C.WOOD_DARK), 0, 0, z * 0.12), x, 0.45, z));
         }
     }
-    g.add(at(box(3.4, 0.1, 0.1, C.WOOD), 0, 0.42, 0));
+    g.add(at(box(2.5, 0.1, 0.1, C.WOOD), 0, 0.42, 0));
     g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     return g;
 }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
-    BASKET_CAPACITY, RACK_CAPACITY, makeBottleRack, makeCarrotBasket,
+    BASKET_CAPACITY, CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, RACK_CAPACITY,
+    makeBottleRack, makeCarrotBasket,
 } from '../procgen/Containers.ts';
 import { makeBottle, makeCarrot } from '../procgen/Machines.ts';
 
@@ -16,13 +17,13 @@ interface Carried {
 
 const CAPACITY: Record<ItemKind, number> = { carrot: BASKET_CAPACITY, bottle: RACK_CAPACITY };
 /** Vertical pitch when crates are stacked in the arms, before CARRY_SCALE. */
-const PITCH: Record<ItemKind, number> = { carrot: 0.78, bottle: 0.86 };
+const PITCH: Record<ItemKind, number> = CRATE_PITCH;
 /**
- * Carried crates are shrunk relative to the ones standing in the world. At full
- * size a stack of them is wider and taller than the character and hides them
- * completely from this camera angle.
+ * The shared crate scale (see `Containers.CRATE_SCALE`). At full size a stack
+ * of crates is wider and taller than the character and hides them completely
+ * from this camera angle, so this size is the one every other site matches.
  */
-const CARRY_SCALE = 0.58;
+const CARRY_SCALE = CRATE_SCALE;
 
 /**
  * What a character is carrying: a small stack of crates held out in front, not
@@ -90,7 +91,7 @@ export class CarryLoad {
         const item = CarryLoad._acquireItem(kind);
         const slot = top.slots[top.items.length];
         item.position.copy(slot);
-        item.scale.setScalar(kind === 'bottle' ? 0.78 : 0.86);
+        item.scale.setScalar(CONTENT_SCALE[kind]);
         item.visible = true;
         top.group.add(item);
         top.items.push(item);
@@ -110,7 +111,7 @@ export class CarryLoad {
             const top = this._stack[this._stack.length - 1];
             const item = CarryLoad._acquireItem(kind);
             item.position.copy(top.slots[top.items.length]);
-            item.scale.setScalar(kind === 'bottle' ? 0.78 : 0.86);
+            item.scale.setScalar(CONTENT_SCALE[kind]);
             item.visible = true;
             top.group.add(item);
             top.items.push(item);

@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { DEBUG, Input, Label, Node, Scene, display, inputListener } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
-import { BLOCKERS, CAMERA, ECONOMY, MACHINE, PLAYER, SHOP, STATIONS, YARD, validateLayout } from './Config.ts';
+import {
+    BLOCKERS, CAMERA, ECONOMY, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, SHOP, STATIONS, YARD,
+    farmhandPads, validateLayout,
+} from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
 
 import { at, rot } from './procgen/Primitives.ts';
-import { makeSignpost } from './procgen/Structures.ts';
 
 import { buildEnvironment } from './world/Environment.ts';
 import { CarrotField } from './world/CarrotField.ts';
@@ -24,6 +26,19 @@ import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/A
 
 import { Hud } from './ui/Hud.ts';
 import { Joystick } from './ui/Joystick.ts';
+
+/** A purchasable pad: hiring staff, or a machine tier. */
+interface UpgradeSlot {
+    zone: Zone;
+    /** Money sunk into the current purchase. Reset after each one completes. */
+    paid: number;
+    title: () => string;
+    /** Price of the next purchase, or null when this slot is exhausted. */
+    cost: () => number | null;
+    /** Whether the pad should exist at all right now. */
+    available: () => boolean;
+    onComplete: () => void;
+}
 
 /** A 2D label pinned to a world position, shown only when `text()` returns one. */
 interface WorldLabel {
@@ -62,8 +77,10 @@ export class FarmScene extends Scene {
     private _zones: Record<string, Zone> = {};
     /** One serving/construction pad per stand, indexed to match `ShopRow.stands`. */
     private _shopZones: Zone[] = [];
-    private _farmer: FarmerAssistant | null = null;
-    private _seller: SellerAssistant | null = null;
+    private _farmhands: FarmerAssistant[] = [];
+    private _shopkeepers: SellerAssistant[] = [];
+    /** Hire and upgrade pads, all driven through one payment path. */
+    private _slots: UpgradeSlot[] = [];
 
     private _transferTimer = 0;
     /** Collider overlay, DEBUG only. Toggled with C. */
@@ -101,7 +118,7 @@ export class FarmScene extends Scene {
 
         this._buildObstacles();
         this._buildZones();
-        this._buildSignposts();
+        this._buildUpgradePads();
 
         this._cash.scatter(
             STATIONS.startCash.x, STATIONS.startCash.z,
@@ -127,6 +144,9 @@ export class FarmScene extends Scene {
                 state: this._state,
                 player: this._player,
                 display,
+                scene3D: sys.scene,
+                __slots: () => this._slots.map(v => ({ title: v.title(), pos: { x: v.zone.x, z: v.zone.z }, avail: v.available(), cost: v.cost(), paid: Math.round(v.paid), enabled: v.zone.enabled })),
+                __machinePad: MACHINE_UPGRADE.pad,
                 __stations: STATIONS,
                 field: this._field,
                 production: this._production,
@@ -157,8 +177,8 @@ export class FarmScene extends Scene {
         this._shops.update(step);
         this._cash.update(step);
 
-        this._farmer?.update(step);
-        this._seller?.update(step);
+        for (const a of this._farmhands) a.update(step);
+        for (const a of this._shopkeepers) a.update(step);
 
         this._refreshObjective();
         this._updateIndicators(step);
@@ -287,7 +307,7 @@ export class FarmScene extends Scene {
         };
 
         // Presentation travels with the pad — see STATIONS in Config.
-        for (const key of ['startCash', 'juicerIn', 'rackPickup', 'hireFarmer', 'hireSeller'] as const) {
+        for (const key of ['startCash', 'juicerIn', 'rackPickup'] as const) {
             const cfg = STATIONS[key];
             add(key, cfg, { icon: cfg.icon, showProgress: 'showProgress' in cfg && cfg.showProgress });
         }
@@ -303,19 +323,35 @@ export class FarmScene extends Scene {
         }
     }
 
-    private _buildSignposts(): void {
+    /**
+     * Builds every hire and upgrade pad. All three kinds — farmhands, per-stall
+     * shopkeepers, and the juicer speed tiers — go through the same `UpgradeSlot`
+     * shape, so payment, the fill bar and the price label are written once.
+     *
+     * Repeatable slots (staff, machine tiers) just report the next `cost()` and
+     * reset `paid` on each purchase.
+     */
+    private _buildUpgradePads(): void {
         const sys = this.sceneSystem3D;
 
-        const post = (x: number, z: number, labelY: number, text: () => string | null) => {
-            const p = makeSignpost();
-            at(rot(p, 0, Math.PI, 0), x, 0, z);
-            obstacles.add(x, z, BLOCKERS.signpost.w, BLOCKERS.signpost.d);
-            p.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-            sys.scene.add(p);
+        /**
+         * The price is written on the grass beside its own pad rather than on a
+         * signpost. A post standing next to a stall visually merges with it, and
+         * wherever it went it sat on somebody's walking line into the pad.
+         * `makeSignpost()` is kept in `procgen/` for other uses.
+         */
+        const makeSlot = (
+            pos: { x: number; z: number },
+            icon: 'hire' | 'shop',
+            slot: Omit<UpgradeSlot, 'zone' | 'paid'>,
+        ): UpgradeSlot => {
+            const zone = new Zone(`slot${this._slots.length}`, pos.x, pos.z,
+                HIRE.padW, HIRE.padD, { icon, showProgress: true });
+            sys.scene.add(zone.marker);
 
             const node = new Node();
             const label = node.addComponent(Label);
-            label.fontSize = 26;
+            label.fontSize = 19;
             label.fontWeight = 800;
             label.color = '#ffffff';
             label.textAlign = 'center';
@@ -323,36 +359,68 @@ export class FarmScene extends Scene {
             node.zIndex = 998;
             this.addChild(node);
 
-            this._worldLabels.push({ node, label, world: new THREE.Vector3(x, labelY, z), text });
-        };
-
-        post(STATIONS.hireFarmer.x, STATIONS.hireFarmer.z - STATIONS.hireFarmer.d / 2 - 0.9, 3.4,
-            () => this._state.farmerHired ? null
-                : `HIRE FARMHAND\n$${Math.max(0, Math.ceil(ECONOMY.farmerCost - this._state.farmerPaid))}`);
-
-        post(STATIONS.hireSeller.x, STATIONS.hireSeller.z - STATIONS.hireSeller.d / 2 - 0.9, 3.4,
-            () => this._state.sellerHired ? null
-                : `HIRE SHOPKEEPER\n$${Math.max(0, Math.ceil(ECONOMY.sellerCost - this._state.sellerPaid))}`);
-
-        // Locked stands advertise their price over the construction site itself.
-        for (const stand of this._shops.stands) {
-            if (stand.cost <= 0) continue;
-            const node = new Node();
-            const label = node.addComponent(Label);
-            label.fontSize = 26;
-            label.fontWeight = 800;
-            label.color = '#ffffff';
-            label.textAlign = 'center';
-            label.dynamic = true;
-            node.zIndex = 998;
-            this.addChild(node);
+            const full: UpgradeSlot = { ...slot, zone, paid: 0 };
             this._worldLabels.push({
                 node, label,
-                world: new THREE.Vector3(stand.sellPad.x, 2.6, stand.sellPad.z),
-                text: () => stand.isOpen || stand.isBuilding ? null
-                    : `NEW JUICE STAND\n$${Math.max(0, Math.ceil(stand.cost - stand.paid))}`,
+                // On the grass below the pad. The label is centred on this
+                // point and runs to two lines, so it needs real clearance from
+                // the near edge or its first line sits on the marking.
+                world: new THREE.Vector3(pos.x, 0.05, pos.z + HIRE.padD / 2 + 1.15),
+                text: () => {
+                    if (!full.available()) return null;
+                    const cost = full.cost();
+                    return cost === null ? null
+                        : `${full.title()}\n$${Math.max(0, Math.ceil(cost - full.paid))}`;
+                },
             });
-        }
+
+            this._slots.push(full);
+            return full;
+        };
+
+        // ── Farmhands, along the near edge of the field ──
+        farmhandPads().forEach((pos, i) => {
+            makeSlot(pos, 'hire', {
+                title: () => 'HIRE FARMHAND',
+                // Slot i unlocks once you have i staff, so they're bought in order.
+                available: () => this._state.farmhands === i && i < this._shops.stands.length,
+                cost: () => HIRE.farmhandCosts[i] ?? null,
+                onComplete: () => {
+                    this._state.farmhands++;
+                    this._farmhands.push(new FarmerAssistant(this, this._context()));
+                    this._state.toast('Farmhand hired!');
+                },
+            });
+        });
+
+        // ── Shopkeepers, one per stall, on the stall's spare flank ──
+        this._shops.stands.forEach((stand, i) => {
+            makeSlot(stand.place.hirePad, 'hire', {
+                title: () => 'HIRE SHOPKEEPER',
+                // Only once that stall exists — hiring staff for a building site
+                // reads as a bug.
+                available: () => stand.isOpen && this._state.shopkeepers === i,
+                cost: () => HIRE.shopkeeperCosts[i] ?? null,
+                onComplete: () => {
+                    this._state.shopkeepers++;
+                    this._shopkeepers.push(new SellerAssistant(this, this._context(), i));
+                    this._state.toast('Shopkeeper hired!');
+                },
+            });
+        });
+
+        // ── Juicer speed, repeatable through the tier table ──
+        makeSlot(MACHINE_UPGRADE.pad, 'shop', {
+            title: () => 'FASTER JUICER',
+            available: () => this._state.machineLevel < MACHINE_UPGRADE.costs.length,
+            cost: () => MACHINE_UPGRADE.costs[this._state.machineLevel] ?? null,
+            onComplete: () => {
+                this._state.machineLevel++;
+                this._production.processTime =
+                    MACHINE_UPGRADE.processTime[this._state.machineLevel];
+                this._state.toast('Juicer upgraded!');
+            },
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -373,8 +441,14 @@ export class FarmScene extends Scene {
             Math.min(1, this._state.carrotsQueued / 8));
         this._zones.rackPickup.setProgress(
             this._production.rackCapacity > 0 ? this._production.rackCount / this._production.rackCapacity : 0);
-        this._zones.hireFarmer.setProgress(this._state.farmerPaid / ECONOMY.farmerCost);
-        this._zones.hireSeller.setProgress(this._state.sellerPaid / ECONOMY.sellerCost);
+        for (const slot of this._slots) {
+            const on = slot.available();
+            if (slot.zone.enabled !== on) slot.zone.setEnabled(on);
+            const cost = slot.cost();
+            slot.zone.occupied = on && slot.zone.contains(x, z);
+            slot.zone.setProgress(cost === null || cost <= 0 ? 1 : slot.paid / cost);
+            slot.zone.update(dt);
+        }
 
         for (let i = 0; i < this._shopZones.length; i++) {
             const zone = this._shopZones[i];
@@ -428,24 +502,15 @@ export class FarmScene extends Scene {
             }
         }
 
-        // ── Upgrade pads ──
-        if (this._zones.hireFarmer.occupied && !this._state.farmerHired) {
-            this._payOff(dt, ECONOMY.farmerCost, this._state.farmerPaid,
-                paid => { this._state.farmerPaid = paid; }, () => {
-                    this._state.farmerHired = true;
-                    this._farmer = new FarmerAssistant(this, this._context());
-                    this._state.toast('Farmhand hired!');
-                    this._zones.hireFarmer.setEnabled(false);
-                });
-        }
-        if (this._zones.hireSeller.occupied && !this._state.sellerHired) {
-            this._payOff(dt, ECONOMY.sellerCost, this._state.sellerPaid,
-                paid => { this._state.sellerPaid = paid; }, () => {
-                    this._state.sellerHired = true;
-                    this._seller = new SellerAssistant(this, this._context());
-                    this._state.toast('Shopkeeper hired!');
-                    this._zones.hireSeller.setEnabled(false);
-                });
+        // ── Hire and upgrade pads ──
+        for (const slot of this._slots) {
+            if (!slot.zone.occupied || !slot.available()) continue;
+            const cost = slot.cost();
+            if (cost === null) continue;
+            this._payOff(dt, cost, slot.paid, paid => { slot.paid = paid; }, () => {
+                slot.paid = 0;              // repeatable: reset for the next tier
+                slot.onComplete();
+            });
         }
     }
 
@@ -503,6 +568,18 @@ export class FarmScene extends Scene {
     // Objective tracking and presentation
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** The cheapest available pad the player can afford right now, if any. */
+    private _affordableSlot(): UpgradeSlot | null {
+        let best: UpgradeSlot | null = null;
+        for (const slot of this._slots) {
+            if (!slot.available()) continue;
+            const cost = slot.cost();
+            if (cost === null || this._state.money < cost) continue;
+            if (!best || cost < best.cost()!) best = slot;
+        }
+        return best;
+    }
+
     /** Derives the current objective from state, rather than tracking it imperatively. */
     private _refreshObjective(): void {
         const p = this._player;
@@ -515,9 +592,9 @@ export class FarmScene extends Scene {
         else if (this._production.readyRackCount > 0) next = 'collect-bottles';
         else {
             const stand = this._shops.nextLocked();
-            const upgrade = this._state.nextUpgradeCost();
+            const slot = this._affordableSlot();
             if (stand && this._state.money >= stand.cost) next = 'unlock-shop';
-            else if (upgrade !== null && this._state.money >= upgrade) next = 'expand';
+            else if (slot) next = 'expand';
             else next = 'harvest-carrots';
         }
 
@@ -552,8 +629,10 @@ export class FarmScene extends Scene {
                 const stand = this._shops.nextLocked();
                 return pad(stand ? stand.sellPad : STATIONS.startCash, 2.6);
             }
-            case 'expand':
-                return pad(this._state.farmerHired ? STATIONS.hireSeller : STATIONS.hireFarmer, 2.6);
+            case 'expand': {
+                const slot = this._affordableSlot();
+                return pad(slot ? { x: slot.zone.x, z: slot.zone.z } : STATIONS.juicerIn, 2.4);
+            }
             case 'harvest-carrots':
             default: {
                 // Aim at a ripe carrot so the arrow points into the field, but keep
@@ -570,6 +649,12 @@ export class FarmScene extends Scene {
     /**
      * Drives both navigation cues: the flat arrow painted on the grass just
      * ahead of the player, and the marker hanging over the destination.
+     *
+     * The two have different lifetimes. The hanging marker labels the current
+     * destination and stays for good. The ground arrow is a TUTORIAL aid: it
+     * retires once the player has been through the loop once, and it stays down
+     * while they're out in the crop rows, where it would be scribbling over the
+     * carrots on every objective change.
      */
     private _updateIndicators(dt: number): void {
         this._elapsed += dt;
@@ -581,13 +666,20 @@ export class FarmScene extends Scene {
         const dist = Math.hypot(dx, dz);
         const near = dist <= 2.6;
 
-        this._groundArrow.visible = !near;
         this._dropIndicator.visible = !near;
+
+        const guiding = !near
+            && !this._state.tutorialDone
+            && !this._field.contains(p.x, p.z);
+        this._groundArrow.visible = guiding;
+
         if (near) return;
 
         const yaw = Math.atan2(dx, dz);
-        this._groundArrow.position.set(p.x + Math.sin(yaw) * 1.7, 0, p.z + Math.cos(yaw) * 1.7);
-        this._groundArrow.rotation.y = yaw;
+        if (guiding) {
+            this._groundArrow.position.set(p.x + Math.sin(yaw) * 1.7, 0, p.z + Math.cos(yaw) * 1.7);
+            this._groundArrow.rotation.y = yaw;
+        }
 
         // Deliberately NOT yawed toward the target: the camera's heading is
         // fixed, so any yaw here just turns the arrow's lit face away and leaves
