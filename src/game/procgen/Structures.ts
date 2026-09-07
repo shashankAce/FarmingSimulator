@@ -20,6 +20,7 @@ export function makeHouse(rng: () => number): THREE.Group {
     const w = rangeOf(rng, 4.0, 5.6);
     const d = rangeOf(rng, 3.6, 4.8);
     const h = rangeOf(rng, 2.6, 3.4);
+    const roofH = rangeOf(rng, 1.3, 1.9);
     const wall = pickOf(rng, WALLS);
     const roofColor = pickOf(rng, ROOFS);
 
@@ -27,25 +28,39 @@ export function makeHouse(rng: () => number): THREE.Group {
     g.add(at(box(w, h, d, wall), 0, h / 2, 0));
 
     // Ridge along X: build the prism with its ridge on Z, then yaw it a quarter turn.
-    const roof = gableRoof(d + 0.7, rangeOf(rng, 1.3, 1.9), w + 0.7, roofColor);
+    // After the turn the ridge sits over z = 0 and the roof falls away toward ±z.
+    const roofHalfD = (d + 0.7) / 2;
+    const roof = gableRoof(d + 0.7, roofH, w + 0.7, roofColor);
     at(rot(roof, 0, Math.PI / 2, 0), 0, h, 0);
     g.add(roof);
 
     // Door on the +Z face, pushed just proud of the wall to avoid z-fighting.
     const doorH = 1.5;
-    g.add(at(box(0.95, doorH, 0.14, C.DOOR), rangeOf(rng, -0.6, 0.6), doorH / 2, d / 2 + 0.02));
+    const doorX = rangeOf(rng, -0.4, 0.4);
+    g.add(at(box(0.95, doorH, 0.14, C.DOOR), doorX, doorH / 2, d / 2 + 0.02));
 
-    // Windows.
+    // Windows, pinned to the outer thirds of the facade. The limit matters:
+    // the frame is 0.86 wide, so anything past this hangs off the wall edge.
     const wins = 1 + Math.floor(rng() * 2);
+    const maxWx = w / 2 - 0.62;
     for (let i = 0; i < wins; i++) {
-        const wx = (i - (wins - 1) / 2) * 1.6 + (rng() < 0.5 ? -1.4 : 1.4);
-        g.add(at(box(0.72, 0.72, 0.12, C.ROOF_BLUE), wx, h * 0.62, d / 2 + 0.02));
+        // One window picks a side; two take both, always clear of the door.
+        const side = wins === 1 ? (rng() < 0.5 ? -1 : 1) : (i === 0 ? -1 : 1);
+        const wx = side * maxWx;
         g.add(at(box(0.86, 0.86, 0.08, C.WOOD), wx, h * 0.62, d / 2 + 0.0));
+        g.add(at(box(0.72, 0.72, 0.12, C.ROOF_BLUE), wx, h * 0.62, d / 2 + 0.02));
     }
 
-    // Chimney.
+    // Chimney. Its height is derived from how high the roof actually is where it
+    // pierces it — a fixed height sinks into the ridge on a steep roof and
+    // stilt-walks above the eaves on a shallow one.
     const cx = w * rangeOf(rng, 0.2, 0.34) * (rng() < 0.5 ? -1 : 1);
-    g.add(at(box(0.5, 1.5, 0.5, C.STONE), cx, h + 0.9, rangeOf(rng, -0.6, 0.6)));
+    const cz = rangeOf(rng, -0.7, 0.7);
+    const roofYAtChimney = h + roofH * (1 - Math.abs(cz) / roofHalfD);
+    const chimneyBase = h + 0.1;
+    const chimneyH = (roofYAtChimney + rangeOf(rng, 0.55, 0.85)) - chimneyBase;
+    g.add(at(box(0.5, chimneyH, 0.5, C.STONE), cx, chimneyBase + chimneyH / 2, cz));
+    g.add(at(box(0.62, 0.14, 0.62, C.STONE_DARK), cx, chimneyBase + chimneyH, cz));
 
     return g;
 }
@@ -284,7 +299,7 @@ function makeDisplayBottle(): THREE.Group {
  * and visible uprights — bare rails read as floating geometry once the camera
  * is close enough to see them properly.
  */
-export function makeConstructionFrame(): THREE.Group {
+export function makeConstructionFrame(w = 5.0, d = 2.0, zOffset = 1.05): THREE.Group {
     // Authored in LOCAL space facing +Z, exactly like `makeShop()`. `ShopStand`
     // yaws the whole group to face outward from whichever fence it sits on, so
     // size it in these axes and the rotation takes care of itself:
@@ -300,34 +315,42 @@ export function makeConstructionFrame(): THREE.Group {
     const g = new THREE.Group();
 
     // Timber deck, so the frame is clearly standing on something.
-    g.add(at(box(5.0, 0.22, 3.4, C.WOOD_LIGHT), 0, 0.11, 0.05));
-    g.add(at(box(5.2, 0.14, 3.6, C.WOOD_DARK), 0, 0.03, 0.05));
+    // Sits centred on `zOffset`, which is pushed toward the customer side so the
+    // deck stops short of the serving pad behind it. A deck centred on the stall
+    // origin overlaps almost half the pad and buries its markings.
+    g.add(at(box(w, 0.22, d, C.WOOD_LIGHT), 0, 0.11, zOffset));
+    g.add(at(box(w + 0.2, 0.14, d + 0.2, C.WOOD_DARK), 0, 0.03, zOffset));
+
+    const zBack = zOffset - d / 2 + 0.25;
+    const zFront = zOffset + d / 2 - 0.25;
+    const xEdge = w / 2 - 0.3;
 
     // Kept low on purpose: a locked plot reads as *less* than a finished stall,
     // so the scaffolding must not out-tower the counter that replaces it.
-    for (const x of [-2.2, 2.2]) {
-        for (const z of [-1.4, 1.5]) {
+    for (const x of [-xEdge, xEdge]) {
+        for (const z of [zBack, zFront]) {
             g.add(at(box(0.3, 1.35, 0.3, C.WOOD_DARK), x, 0.68, z));
         }
     }
     for (const y of [0.58, 1.2]) {
-        for (const z of [-1.4, 1.5]) {
-            g.add(at(box(4.6, 0.16, 0.16, C.WOOD), 0, y, z));
+        for (const z of [zBack, zFront]) {
+            g.add(at(box(w - 0.4, 0.16, 0.16, C.WOOD), 0, y, z));
         }
-        g.add(at(box(0.16, 0.16, 3.0, C.WOOD), -2.2, y, 0.05));
-        g.add(at(box(0.16, 0.16, 3.0, C.WOOD), 2.2, y, 0.05));
+        for (const x of [-xEdge, xEdge]) {
+            g.add(at(box(0.16, 0.16, d - 0.5, C.WOOD), x, y, zOffset));
+        }
     }
 
     // Diagonal braces on the front face — the detail that says "under construction".
     for (const dir of [-1, 1]) {
-        const brace = at(box(2.2, 0.15, 0.15, C.WOOD_PALE), dir * 1.15, 0.9, 1.5);
+        const brace = at(box(w * 0.44, 0.15, 0.15, C.WOOD_PALE), dir * (w * 0.23), 0.9, zFront);
         rot(brace, 0, 0, dir * 0.42);
         g.add(brace);
     }
 
     // A couple of crates and a barrel left on site.
-    g.add(at(makeCrate(0.8), -1.4, 0.22, 0.4));
-    g.add(at(makeBarrel(), 1.5, 0.22, 0.2));
+    g.add(at(makeCrate(0.8), -1.4, 0.22, zOffset));
+    g.add(at(makeBarrel(), 1.5, 0.22, zOffset - 0.2));
 
     return g;
 }

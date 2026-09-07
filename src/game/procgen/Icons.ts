@@ -35,48 +35,63 @@ function roundRect(w: number, h: number, r: number): THREE.Shape {
     return s;
 }
 
-/** Extrudes a shape and lays it flat, facing up. */
+/**
+ * Extrudes a shape and lays it flat, facing up.
+ *
+ * Lit (not `MeshBasicMaterial`) so the icon can RECEIVE shadows — a character
+ * standing on a pad has to cast onto its markings, or they read as hovering
+ * above the ground rather than painted on it. Safe to light here, unlike the
+ * navigation arrows: these lie flat with their faces pointing at the sky, so
+ * they never fall into shadow just from turning.
+ *
+ * `y` is a within-icon stacking offset only, kept tiny — the pad positions the
+ * whole group, and adding a second full offset here is what lifted them off
+ * the ground in the first place.
+ */
 function flat(shape: THREE.Shape, color: number, y: number): THREE.Mesh {
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.05, bevelEnabled: false });
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.04, bevelEnabled: false });
     geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+        color, emissive: color, emissiveIntensity: 0.35,
+    }));
     m.position.y = y;
     m.castShadow = false;
-    m.receiveShadow = false;
+    m.receiveShadow = true;
     return m;
 }
 
 export function makeFlatIcon(kind: IconKind): THREE.Group {
     const g = new THREE.Group();
-    const base = 0.09;
+    // Sub-millimetre stacking only; the pad supplies the real height.
+    const base = 0.004;
 
     switch (kind) {
         case 'carrot': {
             // Tapered root with a leafy crown, matching the crop's real silhouette.
             g.add(flat(poly([[-0.26, 0.1], [0.26, 0.1], [0.05, -0.46], [-0.05, -0.46]]), C.CARROT, base));
-            g.add(flat(poly([[-0.3, 0.12], [0.3, 0.12], [0.18, 0.46], [0, 0.24], [-0.18, 0.46]]), C.LEAF, base + 0.01));
+            g.add(flat(poly([[-0.3, 0.12], [0.3, 0.12], [0.18, 0.46], [0, 0.24], [-0.18, 0.46]]), C.LEAF, base + 0.008));
             break;
         }
         case 'bottle': {
             g.add(flat(roundRect(0.44, 0.56, 0.1), C.JUICE, base));
             g.add(flat(roundRect(0.18, 0.24, 0.05), C.JUICE, base));
-            g.add(flat(roundRect(0.2, 0.12, 0.04), C.BOTTLE_CAP, base + 0.01));
+            g.add(flat(roundRect(0.2, 0.12, 0.04), C.BOTTLE_CAP, base + 0.008));
             break;
         }
         case 'money': {
             g.add(flat(roundRect(0.78, 0.46, 0.08), C.MONEY, base));
-            g.add(flat(roundRect(0.24, 0.24, 0.06), C.MONEY_PAPER, base + 0.01));
+            g.add(flat(roundRect(0.24, 0.24, 0.06), C.MONEY_PAPER, base + 0.008));
             break;
         }
         case 'hire': {
             // A plus sign — "add a worker".
             g.add(flat(roundRect(0.62, 0.2, 0.06), 0xffffff, base));
-            g.add(flat(roundRect(0.2, 0.62, 0.06), 0xffffff, base + 0.005));
+            g.add(flat(roundRect(0.2, 0.62, 0.06), 0xffffff, base + 0.004));
             break;
         }
         case 'shop': {
             // Awning over a counter.
-            g.add(flat(poly([[-0.42, 0.06], [0.42, 0.06], [0.3, 0.4], [-0.3, 0.4]]), 0xe4574f, base + 0.01));
+            g.add(flat(poly([[-0.42, 0.06], [0.42, 0.06], [0.3, 0.4], [-0.3, 0.4]]), 0xe4574f, base + 0.008));
             g.add(flat(roundRect(0.66, 0.3, 0.05), C.WOOD_PALE, base));
             break;
         }

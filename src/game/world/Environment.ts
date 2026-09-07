@@ -1,12 +1,11 @@
 import * as THREE from 'three';
-import { GROUND_SIZE, YARD } from '../Config.ts';
+import { GROUND_SIZE, VILLAGE, YARD } from '../Config.ts';
 import { C } from '../Palette.ts';
-import { at, box, disc, makeRng, plane, rangeOf, rot, scl } from '../procgen/Primitives.ts';
+import { at, disc, makeRng, plane, rangeOf, rot, scl } from '../procgen/Primitives.ts';
 import { makeBush, makeCobblePath, makeFlower, makeGrassTuft, makeRock, makeTree } from '../procgen/Nature.ts';
 import {
-    makeBarrel, makeCart, makeCow, makeCrate, makeFenceRect, makeFountain, makeLampPost,
+    makeBarrel, makeCart, makeCow, makeCrate, makeFenceRect, makeFountain, makeHouse, makeLampPost,
 } from '../procgen/Structures.ts';
-import { makeHouse } from '../procgen/Structures.ts';
 
 /**
  * Assembles everything the player can see but never interacts with: the grass,
@@ -17,9 +16,15 @@ import { makeHouse } from '../procgen/Structures.ts';
  * pattern `skills/3d/three-integration.md` prescribes for geometry with no
  * lifecycle to manage.
  */
-export function buildEnvironment(seed = 0xC0FFEE): THREE.Group {
+export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
     const rng = makeRng(seed);
     const world = new THREE.Group();
+    const V = VILLAGE;
+
+    const solid = (o: THREE.Object3D) => {
+        o.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+        world.add(o);
+    };
 
     // ── Grass ────────────────────────────────────────────────────────────────
     const grass = plane(GROUND_SIZE, GROUND_SIZE, C.GRASS, { flat: false });
@@ -30,18 +35,19 @@ export function buildEnvironment(seed = 0xC0FFEE): THREE.Group {
     // Broad tonal patches break up the flat green without needing a texture.
     // Discs, not rectangles: a hard-edged square of darker grass reads as a
     // rendering bug rather than as ground variation.
-    for (let i = 0; i < 30; i++) {
-        const patch = disc(rangeOf(rng, 2.5, 6.0), C.GRASS_DARK, 12, { flat: false });
+    for (let i = 0; i < V.grassPatches.count; i++) {
+        const patch = disc(rangeOf(rng, V.grassPatches.minR, V.grassPatches.maxR), C.GRASS_DARK, 12, { flat: false });
         patch.receiveShadow = false;
         patch.castShadow = false;
-        at(patch, rangeOf(rng, -70, 70), 0.015, rangeOf(rng, -70, 70));
+        const sp = V.grassPatches.spread;
+        at(patch, rangeOf(rng, -sp, sp), 0.015, rangeOf(rng, -sp, sp));
         scl(patch, 1, 1, rangeOf(rng, 0.65, 1.35));
         rot(patch, 0, rng() * Math.PI, 0);
         world.add(patch);
     }
 
     // ── Cobbled ring road, just outside the fence ────────────────────────────
-    const pad = 4.2;
+    const pad = V.pathPadding;
     const ring: Array<[number, number]> = [
         [YARD.minX - pad, YARD.minZ - pad],
         [YARD.maxX + pad, YARD.minZ - pad],
@@ -49,104 +55,65 @@ export function buildEnvironment(seed = 0xC0FFEE): THREE.Group {
         [YARD.minX - pad, YARD.maxZ + pad],
         [YARD.minX - pad, YARD.minZ - pad],
     ];
-    const road = makeCobblePath(rng, ring, 2.6);
+    const road = makeCobblePath(rng, ring, V.pathWidth);
     road.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = false; } });
     world.add(road);
 
     // ── Fence around the playable yard ───────────────────────────────────────
-    const fence = makeFenceRect(YARD.minX, YARD.maxX, YARD.minZ, YARD.maxZ);
-    fence.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    world.add(fence);
+    solid(makeFenceRect(YARD.minX, YARD.maxX, YARD.minZ, YARD.maxZ));
 
-    // ── Village: cottages along the north and west approaches ────────────────
-    const houseSpots: Array<[number, number, number]> = [
-        [YARD.minX - 12, YARD.minZ - 9, 0.2],
-        [YARD.minX - 3, YARD.minZ - 12, -0.1],
-        [YARD.minX + 9, YARD.minZ - 13, 0.05],
-        [YARD.minX + 21, YARD.minZ - 11, -0.25],
-        [YARD.minX - 15, YARD.minZ + 6, 1.4],
-        [YARD.minX - 17, YARD.minZ + 18, 1.5],
-        [YARD.minX - 14, YARD.maxZ + 2, 1.7],
-        [YARD.maxX + 13, YARD.minZ - 4, -1.5],
-        [YARD.maxX + 15, YARD.minZ + 12, -1.6],
-    ];
-    for (const [x, z, yaw] of houseSpots) {
-        const h = makeHouse(rng);
-        at(rot(h, 0, yaw, 0), x, 0, z);
-        h.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        world.add(h);
+    // ── Placed landmarks ─────────────────────────────────────────────────────
+    for (const spot of V.houses) {
+        solid(at(rot(makeHouse(rng), 0, spot.yaw, 0), spot.x, 0, spot.z));
     }
 
-    // ── Fountain and lamps on the village green ──────────────────────────────
-    const fountain = makeFountain();
-    at(fountain, YARD.minX - 9, 0, YARD.minZ - 1);
-    fountain.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    world.add(fountain);
+    solid(at(makeFountain(), V.fountain.x, 0, V.fountain.z));
+    solid(at(rot(makeCart(), 0, V.cart.yaw, 0), V.cart.x, 0, V.cart.z));
 
-    for (const [x, z] of [
-        [YARD.minX - pad - 1.6, YARD.minZ + 4],
-        [YARD.minX - pad - 1.6, YARD.minZ + 22],
-        [YARD.minX + 6, YARD.minZ - pad - 1.6],
-        [YARD.maxX - 8, YARD.minZ - pad - 1.6],
-        [YARD.maxX + pad + 1.6, YARD.maxZ - 10],
-    ] as Array<[number, number]>) {
+    for (const spot of V.lamps) {
         const lamp = makeLampPost();
-        at(lamp, x, 0, z);
+        at(lamp, spot.x, 0, spot.z);
         lamp.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
         world.add(lamp);
     }
 
-    // ── A parked cart and some clutter ───────────────────────────────────────
-    const cart = makeCart();
-    at(rot(cart, 0, 0.6, 0), YARD.minX - 7, 0, YARD.minZ - 8);
-    cart.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    world.add(cart);
-
-    for (let i = 0; i < 7; i++) {
-        const [x, z] = sampleOutside(rng, 6, 20);
+    // ── Loose clutter ────────────────────────────────────────────────────────
+    for (let i = 0; i < V.scatter.props.count; i++) {
+        const [x, z] = sampleOutside(rng, V.scatter.props.minPad, V.scatter.props.maxPad);
         const prop = rng() < 0.5 ? makeBarrel() : makeCrate(rangeOf(rng, 0.7, 1.05));
-        at(rot(prop, 0, rng() * Math.PI, 0), x, 0, z);
-        prop.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        world.add(prop);
+        solid(at(rot(prop, 0, rng() * Math.PI, 0), x, 0, z));
     }
 
     // ── Cattle grazing in the west pasture ───────────────────────────────────
-    for (let i = 0; i < 5; i++) {
-        const cow = makeCow(rng);
-        at(cow, YARD.minX - rangeOf(rng, 14, 26), 0, YARD.maxZ - rangeOf(rng, -6, 16));
-        cow.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        world.add(cow);
+    for (let i = 0; i < V.cattle.count; i++) {
+        solid(at(makeCow(rng),
+            YARD.minX - rangeOf(rng, V.cattle.minOut, V.cattle.maxOut), 0,
+            YARD.maxZ - rangeOf(rng, V.cattle.zFrom, V.cattle.zTo)));
     }
 
     // ── Trees, bushes, rocks and flowers scattered outside the fence ─────────
-    for (let i = 0; i < 46; i++) {
-        const [x, z] = sampleOutside(rng, 5, 46);
-        const tree = makeTree(rng, { flowering: rng() < 0.25 });
-        at(rot(scl(tree, rangeOf(rng, 0.8, 1.25)), 0, rng() * Math.PI, 0), x, 0, z);
-        tree.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        world.add(tree);
+    for (let i = 0; i < V.scatter.trees.count; i++) {
+        const [x, z] = sampleOutside(rng, V.scatter.trees.minPad, V.scatter.trees.maxPad);
+        const tree = makeTree(rng, { flowering: rng() < V.scatter.trees.floweringChance });
+        solid(at(rot(scl(tree, rangeOf(rng, 0.8, 1.25)), 0, rng() * Math.PI, 0), x, 0, z));
     }
 
-    for (let i = 0; i < 40; i++) {
-        const [x, z] = sampleOutside(rng, 2, 40);
-        const bush = makeBush(rng);
-        at(bush, x, 0, z);
-        bush.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        world.add(bush);
+    for (let i = 0; i < V.scatter.bushes.count; i++) {
+        const [x, z] = sampleOutside(rng, V.scatter.bushes.minPad, V.scatter.bushes.maxPad);
+        solid(at(makeBush(rng), x, 0, z));
     }
 
-    for (let i = 0; i < 18; i++) {
-        const [x, z] = sampleOutside(rng, 2, 44);
+    for (let i = 0; i < V.scatter.rocks.count; i++) {
+        const [x, z] = sampleOutside(rng, V.scatter.rocks.minPad, V.scatter.rocks.maxPad);
         world.add(at(makeRock(rng), x, 0, z));
     }
 
     // Flowers and tufts are allowed inside the yard too — they're flat decals
     // in practice and never block the player.
-    for (let i = 0; i < 130; i++) {
-        const x = rangeOf(rng, -75, 75);
-        const z = rangeOf(rng, -75, 75);
+    const gc = V.scatter.groundCover;
+    for (let i = 0; i < gc.count; i++) {
         const d = rng() < 0.55 ? makeFlower(rng) : makeGrassTuft(rng);
-        at(d, x, 0, z);
+        at(d, rangeOf(rng, -gc.spread, gc.spread), 0, rangeOf(rng, -gc.spread, gc.spread));
         world.add(d);
     }
 

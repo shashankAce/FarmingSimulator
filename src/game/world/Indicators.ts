@@ -27,15 +27,22 @@ function arrowShape(scale: number): THREE.Shape {
     return s;
 }
 
-function extrudedArrow(scale: number, depth: number, color: number): THREE.Mesh {
+/**
+ * `lit` decides which material the arrow gets, and the two cases are genuinely
+ * different. The hanging marker must be UNLIT: it stands on edge, so a lit one
+ * leaves the faces pointing away from the sun almost black and its brightness
+ * would swing as the player moves. The ground arrow lies flat facing the sky,
+ * so lighting it costs nothing and lets it receive the character's shadow.
+ */
+function extrudedArrow(scale: number, depth: number, color: number, lit = false): THREE.Mesh {
     const geo = new THREE.ExtrudeGeometry(arrowShape(scale), { depth, bevelEnabled: false });
     geo.center();
-    // Unlit on purpose. These are UI, not scenery: a lit material leaves the
-    // arrow's side faces (which point away from the sun) almost black, and a
-    // navigation cue that changes brightness as you turn is useless.
-    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+    const material = lit
+        ? new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
+        : new THREE.MeshBasicMaterial({ color });
+    const mesh = new THREE.Mesh(geo, material);
     mesh.castShadow = false;
-    mesh.receiveShadow = false;
+    mesh.receiveShadow = lit;
     return mesh;
 }
 
@@ -46,14 +53,16 @@ function extrudedArrow(scale: number, depth: number, color: number): THREE.Mesh 
 export function makeGroundArrow(): THREE.Group {
     const holder = new THREE.Group();
 
-    const outline = extrudedArrow(1.62, 0.16, 0x1d6b82);
-    const face = extrudedArrow(1.42, 0.16, C.ARROW);
+    const outline = extrudedArrow(1.62, 0.16, 0x1d6b82, true);
+    const face = extrudedArrow(1.42, 0.16, C.ARROW, true);
 
     // Extrude builds the shape in XY pointing +Y; lay it into the XZ plane so it
     // reads as painted on the grass, then aim it down +Z.
     for (const m of [outline, face]) rot(m, Math.PI / 2, 0, 0);
-    at(outline, 0, 0.055, 0);
-    at(face, 0, 0.075, 0);
+    // Above every pad decal (fill .03, edges .05, progress .07, icon ~.10), so
+    // the travel arrow is never buried under a marker it happens to cross.
+    at(outline, 0, 0.16, 0);
+    at(face, 0, 0.18, 0);
 
     holder.add(outline, face);
     return holder;

@@ -4,6 +4,7 @@ import { Group3D } from 'noonengine/3d';
 import { animateCharacter, CharacterColors, CharacterRig, makeCharacter } from '../procgen/Character.ts';
 import { CarryLoad } from '../world/CarryLoad.ts';
 import { clampToYard } from '../world/Environment.ts';
+import { obstacles } from '../world/Obstacles.ts';
 import { PLAYER } from '../Config.ts';
 
 /**
@@ -76,9 +77,13 @@ export class Actor {
             const nx = this._dirX / mag;
             const nz = this._dirZ / mag;
             const step = this.speed * Math.min(1, mag) * dt;
-            const next = clampToYard(this.x + nx * step, this.z + nz * step, PLAYER.radius);
-            this.x = next.x;
-            this.z = next.z;
+            // Fence first, then solids — so being pushed out of a machine can
+            // never shove a character through the boundary.
+            const bounded = clampToYard(this.x + nx * step, this.z + nz * step, PLAYER.radius);
+            const clear = obstacles.resolve(bounded.x, bounded.z, PLAYER.radius);
+            const settled = clampToYard(clear.x, clear.z, PLAYER.radius);
+            this.x = settled.x;
+            this.z = settled.z;
 
             // Face travel direction, taking the shortest way round.
             const target = Math.atan2(nx, nz);

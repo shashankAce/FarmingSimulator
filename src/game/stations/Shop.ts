@@ -3,6 +3,7 @@ import { Scene } from 'noonengine';
 import { ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
 import { makeCashStack } from '../procgen/Machines.ts';
 import { ShopStock } from './ShopStock.ts';
+import { obstacles } from '../world/Obstacles.ts';
 import type { CarryLoad } from '../world/CarryLoad.ts';
 import { at, rot } from '../procgen/Primitives.ts';
 import { makeBunting, makeConstructionFrame, makeShop } from '../procgen/Structures.ts';
@@ -50,6 +51,8 @@ export class ShopStand {
     private _till: Array<{ obj: THREE.Group; value: number }> = [];
     private _tillSlots: THREE.Vector3[] = [];
     private _tillPool: THREE.Group[] = [];
+    /** Handle into the shared obstacle field; reshaped when the stall is built. */
+    private _colliderId: number;
 
     constructor(scene: Scene, state: GameState, cash: CashField, index: number) {
         this._state = state;
@@ -61,9 +64,13 @@ export class ShopStand {
 
         const { stall, yaw } = this.place;
 
-        this._frame = makeConstructionFrame();
+        this._frame = makeConstructionFrame(SHOP.frame.w, SHOP.frame.d, SHOP.frame.offset);
         at(rot(this._frame, 0, yaw, 0), stall.x, 0, stall.z);
         this.group.add(this._frame);
+
+        // Blocks the construction deck now, the counter once it's built.
+        const fb = this.place.frameBox;
+        this._colliderId = obstacles.add(fb.x, fb.z, fb.w, fb.d);
 
         const built = makeShop();
         this._stall = built.group;
@@ -121,6 +128,9 @@ export class ShopStand {
         this._open = true;
         this._stall.visible = true;
         this._frame.visible = false;
+
+        const cb = this.place.counterBox;
+        obstacles.update(this._colliderId, cb.x, cb.z, cb.w, cb.d);
 
         // Bunting hangs on the fence beside this stall, running along it.
         this._bunting = makeBunting(12, 14);

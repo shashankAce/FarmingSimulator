@@ -54,16 +54,20 @@ export class Zone {
 
         const g = new THREE.Group();
 
-        // Translucent floor fill, lifted just off the ground to avoid z-fighting.
+        // Ground decals share one explicit Y ordering so nothing fights or hides
+        // anything else:  fill .03 < edges .05 < progress .06/.07 < icon .09,
+        // with the travel arrow above all of it at .14 (see Indicators.ts).
         this._fill = plane(w, d, opts.tint ?? IDLE, { opacity: 0.26, flat: false });
         this._fillMat = this._fill.material as THREE.MeshLambertMaterial;
         // Per-zone material: these are tinted individually, so the shared cache
         // in Primitives would have every pad light up at once.
         this._fillMat = this._fillMat.clone();
         this._fill.material = this._fillMat;
-        this._fill.receiveShadow = false;
+        // Lit + shadow-receiving: the character's shadow has to fall ON the pad,
+        // otherwise standing on one looks like hovering over it.
+        this._fill.receiveShadow = true;
         this._fill.castShadow = false;
-        at(this._fill, 0, 0.04, 0);
+        at(this._fill, 0, 0.03, 0);
         g.add(this._fill);
 
         // Four bars forming the outline. Unlit, so the highlight colour is exact.
@@ -80,13 +84,13 @@ export class Zone {
             bar.castShadow = false;
             bar.receiveShadow = false;
             this._edgeMats.push(mat);
-            g.add(at(bar, ex, 0.06, ez));
+            g.add(at(bar, ex, 0.05, ez));
         }
 
         if (opts.icon) {
             const icon = makeFlatIcon(opts.icon);
             // Sits slightly back so the progress bar has the near edge to itself.
-            at(icon, 0, 0.06, opts.showProgress ? -0.18 : 0);
+            at(icon, 0, 0.09, opts.showProgress ? -0.18 : 0);
             icon.scale.setScalar(Math.min(w, d) * 0.62);
             g.add(icon);
         }
@@ -97,7 +101,7 @@ export class Zone {
             trackMesh.material = (trackMesh.material as THREE.MeshLambertMaterial).clone();
             trackMesh.castShadow = false;
             trackMesh.receiveShadow = false;
-            at(trackMesh, 0, 0.07, d / 2 - 0.42);
+            at(trackMesh, 0, 0.06, d / 2 - 0.42);
             g.add(trackMesh);
 
             const barGeo = new THREE.PlaneGeometry(1, 0.2);
@@ -107,7 +111,7 @@ export class Zone {
             this._progressBar = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({ color: HIGHLIGHT }));
             this._progressBar.castShadow = false;
             this._progressBar.receiveShadow = false;
-            at(this._progressBar, -this._progressWidth / 2, 0.08, d / 2 - 0.42);
+            at(this._progressBar, -this._progressWidth / 2, 0.07, d / 2 - 0.42);
             this._progressBar.scale.x = 0.001;
             g.add(this._progressBar);
         }

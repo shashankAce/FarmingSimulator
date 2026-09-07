@@ -6,6 +6,8 @@
  * The player is confined to the fenced rectangle described by `YARD`.
  */
 
+import type { IconKind } from './procgen/Icons.ts';
+
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
 
@@ -78,22 +80,44 @@ export function fieldBounds(): { minX: number; maxX: number; minZ: number; maxZ:
 }
 
 /** Where each station sits. `r` is the trigger radius / half-extent of its floor marker. */
+/**
+ * Interaction pads and the fixed machinery between them.
+ *
+ * Pad entries carry their own HUD presentation (`icon`, `showProgress`) so a
+ * station is one config object rather than a position here and an icon wired up
+ * somewhere else. Entries without `w`/`d` are machine anchors, not pads.
+ */
 export const STATIONS = {
     /** Starting cash on the ground — the first thing the player ever picks up. */
-    startCash: { x: -8, z: 12, w: 4.4, d: 3.0 },
+    startCash: { x: -8, z: 12, w: 4.4, d: 3.0, icon: 'money' as IconKind },
     /** Drop carrots here to feed the juicer. */
-    juicerIn: { x: -4.5, z: 3.5, w: 3.8, d: 3.0 },
+    juicerIn: { x: -4.5, z: 3.5, w: 3.8, d: 3.0, icon: 'carrot' as IconKind, showProgress: true },
     /** The machine body itself (not walkable). */
     juicer: { x: -4.5, z: 0 },
     /** Conveyor runs from the juicer westward to the rack stand. */
     conveyor: { x0: -7.7, x1: -12.1, z: 0 },
     /** Lift a filled rack off the stand here. */
-    rackPickup: { x: -14.4, z: 3.5, w: 3.8, d: 3.0 },
+    rackPickup: { x: -14.4, z: 3.5, w: 3.8, d: 3.0, icon: 'bottle' as IconKind, showProgress: true },
     /** The rack stand sits just behind the pickup pad. */
     racks: { x: -14.4, z: 0 },
     /** Upgrade pads. */
-    hireFarmer: { x: 0.5, z: -11.5, w: 3.4, d: 3.4 },
-    hireSeller: { x: -14.4, z: -5.5, w: 3.4, d: 3.4 },
+    hireFarmer: { x: 0.5, z: -11.5, w: 3.4, d: 3.4, icon: 'hire' as IconKind, showProgress: true },
+    hireSeller: { x: -14.4, z: -5.5, w: 3.4, d: 3.4, icon: 'hire' as IconKind, showProgress: true },
+};
+
+/**
+ * Solid footprints inside the fence, as full extents centred on the machine
+ * they belong to. Anything listed here blocks characters; anything omitted is
+ * walked straight through. Stall counters are derived per-shop instead — see
+ * `ShopPlacement.counterBox`.
+ */
+export const BLOCKERS = {
+    juicer: { w: 4.7, d: 4.1 },
+    /** Depth only; the span comes from `STATIONS.conveyor`. */
+    conveyorDepth: 1.5,
+    rackStand: { w: 3.6, d: 1.4 },
+    /** Signposts are thin but solid — you should not walk through the billboard. */
+    signpost: { w: 2.5, d: 0.5 },
 };
 
 /**
@@ -139,6 +163,11 @@ export const SHOP = {
     /** Where dropped crates land, relative to the stall: along the fence, then inward. */
     dropAlong: -3.0,
     dropInward: 0.6,
+    /**
+     * Construction-plot deck, in stall-local units. `offset` pushes it toward
+     * the customer side so it clears the serving pad behind it.
+     */
+    frame: { w: 5.0, d: 2.0, offset: 1.05 },
     /** Completed orders stack up here; sales stall once it's full. */
     tillSlots: 4,
     /** Crates that can be set down at one stall. */
@@ -183,6 +212,10 @@ export interface ShopPlacement {
     };
     /** Bunting runs along the fence, so it needs the fence's own heading. */
     bunting: { x: number; z: number; yaw: number };
+    /** World-space footprint of the counter, for collision once open. */
+    counterBox: { x: number; z: number; w: number; d: number };
+    /** World-space footprint of the construction deck, for collision while locked. */
+    frameBox: { x: number; z: number; w: number; d: number };
 }
 
 /** Turns a `ShopConfig` into every world position that stall needs. */
@@ -226,6 +259,22 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
             // Bunting is authored along X; west/east fences run along Z.
             yaw: cfg.side === 'west' || cfg.side === 'east' ? Math.PI / 2 : 0,
         },
+        // The counter is 5.0 along the fence by 1.0 across it, centred 1.15
+        // outward of the stall origin. Sides are axis-aligned, so projecting the
+        // local extents onto the world axes gives an exact AABB.
+        counterBox: {
+            ...off(stall, 0, 1.15),
+            w: Math.abs(v.along.x) * 5.2 + Math.abs(v.out.x) * 1.2,
+            d: Math.abs(v.along.z) * 5.2 + Math.abs(v.out.z) * 1.2,
+        },
+        // The locked plot is a different shape in a different place from the
+        // counter that replaces it, so it needs its own box rather than reusing
+        // the counter's — which is what left closed shops blocking thin air.
+        frameBox: {
+            ...off(stall, 0, SHOP.frame.offset),
+            w: Math.abs(v.along.x) * (SHOP.frame.w + 0.2) + Math.abs(v.out.x) * SHOP.frame.d,
+            d: Math.abs(v.along.z) * (SHOP.frame.w + 0.2) + Math.abs(v.out.z) * SHOP.frame.d,
+        },
     };
 }
 
@@ -259,6 +308,63 @@ export const QUEUE = {
     maxOrder: 4,
     /** Seconds before a freed slot is refilled by a new arrival. */
     respawnDelay: 1.1,
+};
+
+/**
+ * ─── VILLAGE ─────────────────────────────────────────────────────────────────
+ * Everything outside the fence. Positions are written as offsets from `YARD`'s
+ * edges rather than as bare world coordinates, so moving or resizing the
+ * boundary carries the whole village with it.
+ *
+ * `buildEnvironment()` reads this and nothing else — it holds no positions of
+ * its own. Scatter counts drive the seeded random fill; the explicit arrays are
+ * the placed landmarks.
+ */
+export const VILLAGE = {
+    /** Seed for every scattered position. Change it to reroll the whole village. */
+    seed: 0xC0FFEE,
+    /** Gap between the fence and the cobbled ring road. */
+    pathPadding: 4.2,
+    pathWidth: 2.6,
+
+    houses: [
+        { x: YARD.minX - 12, z: YARD.minZ - 9, yaw: 0.2 },
+        { x: YARD.minX - 3, z: YARD.minZ - 12, yaw: -0.1 },
+        { x: YARD.minX + 9, z: YARD.minZ - 13, yaw: 0.05 },
+        { x: YARD.minX + 21, z: YARD.minZ - 11, yaw: -0.25 },
+        { x: YARD.minX - 15, z: YARD.minZ + 6, yaw: 1.4 },
+        { x: YARD.minX - 17, z: YARD.minZ + 18, yaw: 1.5 },
+        { x: YARD.minX - 14, z: YARD.maxZ + 2, yaw: 1.7 },
+        { x: YARD.maxX + 13, z: YARD.minZ - 4, yaw: -1.5 },
+        { x: YARD.maxX + 15, z: YARD.minZ + 12, yaw: -1.6 },
+    ],
+
+    lamps: [
+        { x: YARD.minX - 5.8, z: YARD.minZ + 4 },
+        { x: YARD.minX - 5.8, z: YARD.minZ + 22 },
+        { x: YARD.minX + 6, z: YARD.minZ - 5.8 },
+        { x: YARD.maxX - 8, z: YARD.minZ - 5.8 },
+        { x: YARD.maxX + 5.8, z: YARD.maxZ - 10 },
+    ],
+
+    fountain: { x: YARD.minX - 9, z: YARD.minZ - 1 },
+    cart: { x: YARD.minX - 7, z: YARD.minZ - 8, yaw: 0.6 },
+
+    /** Cattle graze in the western pasture. */
+    cattle: { count: 5, minOut: 14, maxOut: 26, zFrom: -6, zTo: 16 },
+
+    /** Seeded scatter: how many, and how far outside the fence they may land. */
+    scatter: {
+        trees: { count: 46, minPad: 5, maxPad: 46, floweringChance: 0.25 },
+        bushes: { count: 40, minPad: 2, maxPad: 40 },
+        rocks: { count: 18, minPad: 2, maxPad: 44 },
+        props: { count: 7, minPad: 6, maxPad: 20 },
+        /** Flowers and tufts are flat, so they are allowed inside the fence too. */
+        groundCover: { count: 130, spread: 75 },
+    },
+
+    /** Broad tonal discs that break up the flat green. */
+    grassPatches: { count: 30, minR: 2.5, maxR: 6.0, spread: 70 },
 };
 
 export const PLAYER = {

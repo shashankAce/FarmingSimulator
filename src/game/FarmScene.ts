@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { DEBUG, Label, Node, Scene, display } from 'noonengine';
+import { DEBUG, Input, Label, Node, Scene, display, inputListener } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
-import { CAMERA, ECONOMY, MACHINE, PLAYER, SHOP, STATIONS, validateLayout } from './Config.ts';
+import { BLOCKERS, CAMERA, ECONOMY, MACHINE, PLAYER, SHOP, STATIONS, YARD, validateLayout } from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
 
@@ -12,6 +12,7 @@ import { makeSignpost } from './procgen/Structures.ts';
 import { buildEnvironment } from './world/Environment.ts';
 import { CarrotField } from './world/CarrotField.ts';
 import { Zone } from './world/Zones.ts';
+import { debugBounds, debugRadius, obstacles } from './world/Obstacles.ts';
 import { makeDropIndicator, makeGroundArrow, updateDropIndicator } from './world/Indicators.ts';
 
 import { Production } from './stations/Production.ts';
@@ -65,6 +66,9 @@ export class FarmScene extends Scene {
     private _seller: SellerAssistant | null = null;
 
     private _transferTimer = 0;
+    /** Collider overlay, DEBUG only. Toggled with C. */
+    private _colliderView: THREE.Group | null = null;
+    private _playerRing: THREE.Line | null = null;
     private _worldLabels: WorldLabel[] = [];
 
     onLoad(): void {
@@ -95,6 +99,7 @@ export class FarmScene extends Scene {
         this._shops = new ShopRow(this, this._state, this._cash);
         sys.scene.add(this._shops.group);
 
+        this._buildObstacles();
         this._buildZones();
         this._buildSignposts();
 
@@ -117,15 +122,18 @@ export class FarmScene extends Scene {
 
         if (DEBUG) {
             validateLayout();
+            this._buildColliderView();
             (globalThis as Record<string, unknown>).__farm = {
                 state: this._state,
                 player: this._player,
                 display,
+                __stations: STATIONS,
                 field: this._field,
                 production: this._production,
                 shops: this._shops,
                 cash: this._cash,
                 teleport: (x: number, z: number) => { this._player.x = x; this._player.z = z; },
+                toggleColliders: () => this._toggleColliders(),
             };
         }
     }
@@ -157,6 +165,8 @@ export class FarmScene extends Scene {
         this._updateCamera(step);
         this._updateWorldLabels();
         this._shops.updateBubbles(this.sceneSystem3D);
+
+        if (this._playerRing) this._playerRing.position.set(this._player.x, 0, this._player.z);
 
         this._hud.update(step, this._state, this._production.rackCount, this._production.rackCapacity);
     }
@@ -213,6 +223,59 @@ export class FarmScene extends Scene {
         light.shadow.normalBias = 0.04;
     }
 
+    /**
+     * Collider overlay: every solid footprint, the yard clamp line, and the
+     * player's own collision radius. Hidden until toggled with C.
+     *
+     * Built AFTER `_buildObstacles()`, since `debugGroup()` snapshots whatever
+     * boxes are registered at the moment it's called.
+     */
+    private _buildColliderView(): void {
+        inputListener.on(Input.KEY_DOWN, (e: { code: string }) => {
+            if (e.code === 'KeyC') this._toggleColliders();
+        });
+    }
+
+    /**
+     * Rebuilt on every switch-on rather than snapshotted once, because
+     * footprints change shape at runtime (a locked plot becomes a counter).
+     * A stale overlay is worse than none — it lies about where the walls are.
+     */
+    private _toggleColliders(): void {
+        if (this._colliderView) {
+            this.sceneSystem3D.scene.remove(this._colliderView);
+            this._colliderView = null;
+            this._playerRing = null;
+            this._state.toast('Colliders OFF');
+            return;
+        }
+
+        const view = obstacles.debugGroup();
+        view.add(debugBounds(YARD.minX, YARD.maxX, YARD.minZ, YARD.maxZ, PLAYER.radius));
+        this._playerRing = debugRadius(PLAYER.radius);
+        view.add(this._playerRing);
+
+        this._colliderView = view;
+        this.sceneSystem3D.scene.add(view);
+        this._state.toast('Colliders ON');
+    }
+
+    /**
+     * Registers the solid footprints inside the fence. Only fixed machinery and
+     * stall counters block — dropped crates and racks are transient, and the
+     * village is beyond the boundary the player is already clamped to.
+     */
+    private _buildObstacles(): void {
+        obstacles.add(STATIONS.juicer.x, STATIONS.juicer.z, BLOCKERS.juicer.w, BLOCKERS.juicer.d);
+        obstacles.addSpan(
+            STATIONS.conveyor.x0, STATIONS.conveyor.x1, STATIONS.conveyor.z,
+            BLOCKERS.conveyorDepth,
+        );
+        obstacles.add(STATIONS.racks.x, STATIONS.racks.z, BLOCKERS.rackStand.w, BLOCKERS.rackStand.d);
+
+        // Stalls register (and later reshape) their own footprint — see ShopStand.
+    }
+
     private _buildZones(): void {
         const sys = this.sceneSystem3D;
         const add = (key: string, cfg: { x: number; z: number; w: number; d: number },
@@ -223,11 +286,11 @@ export class FarmScene extends Scene {
             return z;
         };
 
-        add('startCash', STATIONS.startCash, { icon: 'money' });
-        add('juicerIn', STATIONS.juicerIn, { icon: 'carrot', showProgress: true });
-        add('rackPickup', STATIONS.rackPickup, { icon: 'bottle', showProgress: true });
-        add('hireFarmer', STATIONS.hireFarmer, { icon: 'hire', showProgress: true });
-        add('hireSeller', STATIONS.hireSeller, { icon: 'hire', showProgress: true });
+        // Presentation travels with the pad — see STATIONS in Config.
+        for (const key of ['startCash', 'juicerIn', 'rackPickup', 'hireFarmer', 'hireSeller'] as const) {
+            const cfg = STATIONS[key];
+            add(key, cfg, { icon: cfg.icon, showProgress: 'showProgress' in cfg && cfg.showProgress });
+        }
 
         // One pad per stand: construction site while locked, serving pad once open.
         for (const stand of this._shops.stands) {
@@ -246,6 +309,7 @@ export class FarmScene extends Scene {
         const post = (x: number, z: number, labelY: number, text: () => string | null) => {
             const p = makeSignpost();
             at(rot(p, 0, Math.PI, 0), x, 0, z);
+            obstacles.add(x, z, BLOCKERS.signpost.w, BLOCKERS.signpost.d);
             p.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
             sys.scene.add(p);
 
