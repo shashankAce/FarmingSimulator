@@ -64,6 +64,7 @@ export class Production {
     processTime = MACHINE.processTime;
     private _working = false;
     private _wheelSpin = 0;
+    private _produced = 0;
 
     constructor(state: GameState) {
         this._state = state;
@@ -120,10 +121,35 @@ export class Production {
 
     get isWorking(): boolean { return this._working; }
 
-    /** True while there's somewhere for the next bottle to go. */
+    /** DEBUG: bottles currently riding the belt. */
+    get __beltCount(): number { return this._beltBottles.length; }
+
+    /** Lifetime bottles pressed, for throughput checks. */
+    get totalProduced(): number { return this._produced; }
+
+    /**
+     * True while there's clearance at the head of the belt for another bottle.
+     *
+     * Deliberately does NOT consider rack space. Counting in-transit bottles
+     * against rack capacity throttled the juicer to a 58% duty cycle at the
+     * fastest tier: the belt holds ~10 bottles, which ate most of an 18-bottle
+     * buffer and stalled production while the racks still had room. The belt is
+     * its own buffer, and it backs up when the stand is full.
+     */
     get hasRoom(): boolean {
-        const racked = this.rackCount + this._beltBottles.length;
-        return racked < this.rackCapacity;
+        const last = this._beltBottles[this._beltBottles.length - 1];
+        return !last || last.t > this._gapT;
+    }
+
+    /** Minimum spacing between belt bottles, as a fraction of belt length. */
+    private get _gapT(): number {
+        const len = Math.abs(STATIONS.conveyor.x1 - STATIONS.conveyor.x0);
+        return len > 0 ? MACHINE.beltGap / len : 0.1;
+    }
+
+    /** True when the belt is backed up solid against a full stand. */
+    get isJammed(): boolean {
+        return !this.hasRoom && !this._hasRackSpace();
     }
 
     /**
@@ -181,24 +207,34 @@ export class Production {
     // ─────────────────────────────────────────────────────────────────────────
 
     private _updateProcessing(dt: number): void {
-        const canWork = this._state.carrotsQueued > 0 && this.hasRoom;
-        this._working = canWork;
-        this._pour.visible = canWork;
+        const hasInput = this._state.carrotsQueued > 0;
 
-        if (!canWork) {
+        // "Working" means genuinely producing. It must NOT go false during the
+        // fraction of a second after each bottle while the belt head clears, or
+        // the machine visibly flickers between every single bottle.
+        this._working = hasInput && !this.isJammed;
+        this._pour.visible = this._working;
+
+        if (!hasInput) {
             this._processTimer = 0;
             return;
         }
 
         this._processTimer += dt;
         if (this._processTimer < this.processTime) return;
-        this._processTimer -= this.processTime;
 
+        // Bottle is ready but the belt head is still occupied: HOLD it rather
+        // than discarding the progress. Resetting the timer here is what turned
+        // a brief spacing wait into a lost production cycle.
+        if (!this.hasRoom) return;
+
+        this._processTimer -= this.processTime;
         this._state.carrotsQueued--;
         this._spawnBeltBottle();
     }
 
     private _spawnBeltBottle(): void {
+        this._produced++;
         const obj = this._pool.pop() ?? makeBottle();
         obj.visible = true;
         // Same on-screen size as one sitting in a crate, so a bottle doesn't
@@ -209,32 +245,39 @@ export class Production {
         this._beltBottles.push({ obj, t: 0 });
     }
 
+    /**
+     * Advances the belt. Bottles queue behind one another and the head bottle
+     * only leaves when a rack can take it, so a full stand backs the belt up
+     * rather than stopping the machine.
+     *
+     * `_beltBottles[0]` is the oldest, i.e. the one furthest along.
+     */
     private _updateBelt(dt: number): void {
         const { x0, x1, z } = STATIONS.conveyor;
-        for (let i = this._beltBottles.length - 1; i >= 0; i--) {
-            const b = this._beltBottles[i];
-            b.t += dt / MACHINE.beltTime;
+        const gap = this._gapT;
 
-            if (b.t >= 1) {
-                this._beltBottles.splice(i, 1);
-                this._parkInRack(b.obj);
-                continue;
-            }
+        let limit = 1;
+        for (const b of this._beltBottles) {
+            const want = b.t + dt / MACHINE.beltTime;
+            const next = Math.min(want, limit);
+            // Only wobble while actually moving; a queued bottle should sit still.
+            b.obj.rotation.z = next < want ? 0 : Math.sin(next * 30) * 0.05;
+            b.t = next;
             b.obj.position.set(x0 + (x1 - x0) * b.t, BELT_Y + 0.07, z);
-            // A little wobble, as if the belt is rumbling.
-            b.obj.rotation.z = Math.sin(b.t * 30) * 0.05;
+            limit = b.t - gap;
         }
+
+        const head = this._beltBottles[0];
+        if (!head || head.t < 1 - 1e-4) return;
+
+        const rack = this._openRack();
+        if (!rack) return;                 // stand full — the head waits on the belt
+        this._beltBottles.shift();
+        this._placeInRack(rack, head.obj);
     }
 
-    /** Files a finished bottle into the first rack on the stand with room. */
-    private _parkInRack(obj: THREE.Group): void {
-        const rack = this._openRack();
-        if (!rack) {
-            // Stand filled while this one was in transit — recycle rather than clip.
-            this.group.remove(obj);
-            this._recycle(obj);
-            return;
-        }
+    /** Files a finished bottle into a rack slot. */
+    private _placeInRack(rack: StandRack, obj: THREE.Group): void {
         const slot = rack.slots[rack.bottles.length];
         obj.position.copy(slot);
         obj.rotation.set(0, 0, 0);
@@ -243,6 +286,14 @@ export class Production {
         rack.group.add(obj);
         rack.bottles.push(obj);
         this._state.bottlesStocked = this.rackCount;
+    }
+
+    /** Whether any rack could accept another bottle right now. */
+    private _hasRackSpace(): boolean {
+        for (const r of this._racks) if (r.bottles.length < r.slots.length) return true;
+        const depth = new Array<number>(STAND_SLOTS).fill(0);
+        for (const r of this._racks) depth[r.index]++;
+        return depth.some(d => d < STACK_LIMIT);
     }
 
     /**

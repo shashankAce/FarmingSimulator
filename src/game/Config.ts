@@ -81,25 +81,65 @@ export function fieldBounds(): { minX: number; maxX: number; minZ: number; maxZ:
 
 /** Where each station sits. `r` is the trigger radius / half-extent of its floor marker. */
 /**
+ * ─── PRODUCTION LINE ─────────────────────────────────────────────────────────
+ * The juicer, its conveyor and the rack stand are ONE machine. `PLANT.origin`
+ * places the whole line and every part is measured from it, so relocating the
+ * plant is a single edit — previously it meant keeping six coordinates in
+ * STATIONS in sync by hand.
+ *
+ * Offsets are along -X (the line runs from the juicer westward to the racks)
+ * and +Z (`padOffset` puts the interaction pads in front of the machinery, on
+ * the side the player approaches from).
+ */
+export const PLANT = {
+    /** Move THIS to move the juicer, belt, racks and all their pads together. */
+    origin: { x: -5.5, z: -8 },
+    /** Belt head and tail, as offsets along the line from the juicer. */
+    beltStart: -3.2,
+    beltEnd: -7.6,
+    /** Rack stand, same axis. */
+    rackStand: -9.9,
+    /** How far in front of the machinery the interaction pads sit. */
+    padOffset: 3.5,
+    /** Speed-upgrade pad, relative to the origin. */
+    upgradePad: { dx: -4.1, dz: 3.6 },
+    padW: 3.8,
+    padD: 3.0,
+};
+
+/**
  * Interaction pads and the fixed machinery between them.
  *
  * Pad entries carry their own HUD presentation (`icon`, `showProgress`) so a
  * station is one config object rather than a position here and an icon wired up
  * somewhere else. Entries without `w`/`d` are machine anchors, not pads.
+ *
+ * Everything belonging to the production line is derived from `PLANT` — edit
+ * that, not these.
  */
 export const STATIONS = {
     /** Starting cash on the ground — the first thing the player ever picks up. */
     startCash: { x: -8, z: 12, w: 4.4, d: 3.0, icon: 'money' as IconKind },
-    /** Drop carrots here to feed the juicer. */
-    juicerIn: { x: -4.5, z: 3.5, w: 3.8, d: 3.0, icon: 'carrot' as IconKind, showProgress: true },
     /** The machine body itself (not walkable). */
-    juicer: { x: -4.5, z: 0 },
+    juicer: { x: PLANT.origin.x, z: PLANT.origin.z },
+    /** Drop carrots here to feed the juicer. */
+    juicerIn: {
+        x: PLANT.origin.x, z: PLANT.origin.z + PLANT.padOffset,
+        w: PLANT.padW, d: PLANT.padD, icon: 'carrot' as IconKind, showProgress: true,
+    },
     /** Conveyor runs from the juicer westward to the rack stand. */
-    conveyor: { x0: -7.7, x1: -12.1, z: 0 },
-    /** Lift a filled rack off the stand here. */
-    rackPickup: { x: -14.4, z: 3.5, w: 3.8, d: 3.0, icon: 'bottle' as IconKind, showProgress: true },
+    conveyor: {
+        x0: PLANT.origin.x + PLANT.beltStart,
+        x1: PLANT.origin.x + PLANT.beltEnd,
+        z: PLANT.origin.z,
+    },
     /** The rack stand sits just behind the pickup pad. */
-    racks: { x: -14.4, z: 0 },
+    racks: { x: PLANT.origin.x + PLANT.rackStand, z: PLANT.origin.z },
+    /** Lift a filled rack off the stand here. */
+    rackPickup: {
+        x: PLANT.origin.x + PLANT.rackStand, z: PLANT.origin.z + PLANT.padOffset,
+        w: PLANT.padW, d: PLANT.padD, icon: 'bottle' as IconKind, showProgress: true,
+    },
 };
 
 /**
@@ -163,9 +203,22 @@ export const SHOP = {
     inset: 2.0,
     /** From the stall origin to the player's serving pad, further inward. */
     sellDistance: 1.5,
-    /** Where dropped crates land, relative to the stall: along the fence, then inward. */
-    dropAlong: -3.0,
-    dropInward: 0.6,
+    /**
+     * Where dropped crates land, relative to the stall: along the fence, then
+     * inward. A NEGATIVE `dropInward` pushes them back OUT toward the counter,
+     * into the gap between the stall body (which starts 0.65 out) and the
+     * serving pad (whose outer edge is at 0), so they read as stock stacked at
+     * the shop rather than abandoned on the grass.
+     */
+    dropAlong: -2.7,
+    dropInward: -0.32,
+    /**
+     * Hire pad, on the stall's other flank. Deliberately its OWN numbers rather
+     * than the negation of the drop offsets: mirroring them meant tuning where
+     * crates land silently dragged this pad into the counter's collider.
+     */
+    hireAlong: 3.0,
+    hireInward: 0.6,
     /**
      * Construction-plot deck, in stall-local units. `offset` pushes it toward
      * the customer side so it clears the serving pad behind it.
@@ -253,7 +306,7 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         sellPad: off(stall, 0, -SHOP.sellDistance),
         dropPad: off(stall, SHOP.dropAlong, -SHOP.dropInward),
         // Opposite flank from the drop, so crates and hiring never share space.
-        hirePad: off(stall, -SHOP.dropAlong, -SHOP.dropInward),
+        hirePad: off(stall, SHOP.hireAlong, -SHOP.hireInward),
         counter: off(stall, 0, SHOP.counterOffset),
         queue: {
             slot0,
@@ -413,7 +466,11 @@ export function farmhandPads(): Array<{ x: number; z: number }> {
  * curve can be tuned by eye.
  */
 export const MACHINE_UPGRADE = {
-    pad: { x: -8.6, z: 3.6 },
+    /** Derived from PLANT so it travels with the machine it upgrades. */
+    pad: {
+        x: PLANT.origin.x + PLANT.upgradePad.dx,
+        z: PLANT.origin.z + PLANT.upgradePad.dz,
+    },
     processTime: [0.75, 0.52, 0.36, 0.24],
     costs: [400, 1100, 2600],
 };
@@ -448,7 +505,13 @@ export const MACHINE = {
      *  — see `MACHINE_UPGRADE.processTime`. */
     processTime: 0.75,
     /** How long a bottle takes to ride the belt end to end. */
-    beltTime: 3.2,
+    beltTime: 2.4,
+    /**
+     * Minimum world-space gap between bottles queued on the belt. This is the
+     * belt's OWN capacity — bottles back up behind a full rack stand instead of
+     * the juicer stalling, so a jam is something you can see.
+     */
+    beltGap: 0.32,
     /** Seconds between one item transferring during a pickup/dropoff. */
     transferInterval: 0.11,
     /** Rack positions along the production stand. */
@@ -513,6 +576,18 @@ export function validateLayout(): void {
     }
     if (!inside(MACHINE_UPGRADE.pad.x, MACHINE_UPGRADE.pad.z)) {
         warn('MACHINE_UPGRADE.pad is outside YARD.');
+    }
+
+    // The production line moves as one, so check both of its ends.
+    for (const [name, pt] of [
+        ['juicer', STATIONS.juicer],
+        ['rack stand', STATIONS.racks],
+        ['belt tail', { x: STATIONS.conveyor.x1, z: STATIONS.conveyor.z }],
+    ] as Array<[string, { x: number; z: number }]>) {
+        if (pt.x < YARD.minX + 3 || pt.x > YARD.maxX - 3
+            || pt.z < YARD.minZ + 3 || pt.z > YARD.maxZ - 3) {
+            warn(`PLANT places the ${name} too close to the fence — move PLANT.origin.`);
+        }
     }
 
     SHOPS.forEach((cfg, i) => {
