@@ -316,10 +316,9 @@ export class FarmScene extends Scene {
             const zone = this._shopZones[i];
             const stand = this._shops.stands[i];
             zone.occupied = zone.contains(x, z);
-            // While locked the bar is the price; once open it's the current order.
-            zone.setProgress(stand.isOpen
-                ? (stand.frontWants > 0 ? 1 - stand.frontWants / 5 : 0)
-                : stand.unlockProgress);
+            // While locked the bar is the price; once open it's how full the
+            // till is, since that's what actually stops the stall.
+            zone.setProgress(stand.isOpen ? stand.tillFullness : stand.unlockProgress);
             zone.update(dt);
         }
     }
@@ -346,7 +345,7 @@ export class FarmScene extends Scene {
             if (bottles > 0) p.load.adoptFilled('bottle', bottles);
         }
 
-        // ── Shop pads: pay one off, or serve at one that's open ──
+        // ── Shop pads: pay one off, or work the counter at one that's open ──
         for (let i = 0; i < this._shopZones.length; i++) {
             const zone = this._shopZones[i];
             if (!zone.occupied) continue;
@@ -359,8 +358,9 @@ export class FarmScene extends Scene {
                 });
                 continue;
             }
-            if (canTransfer && p.load.kind === 'bottle') {
-                if (stand.sellBottle()) p.load.pop();
+            // Sweep takings, set down a crate, or serve — see ShopStand.serveTick.
+            if (canTransfer) {
+                stand.serveTick(p.load, value => this._state.addMoney(value));
             }
         }
 
@@ -447,7 +447,7 @@ export class FarmScene extends Scene {
         if (!this._state.shopBuilt) next = 'collect-start-cash';
         else if (p.load.kind === 'bottle') next = 'sell-bottles';
         else if (p.load.kind === 'carrot') next = 'deliver-carrots';
-        else if (this._cash.count > 0) next = 'collect-earnings';
+        else if (this._cash.count > 0 || this._shops.tillTotal > 0) next = 'collect-earnings';
         else if (this._production.readyRackCount > 0) next = 'collect-bottles';
         else {
             const stand = this._shops.nextLocked();
@@ -477,6 +477,10 @@ export class FarmScene extends Scene {
                 return pad(stand ? stand.sellPad : STATIONS.rackPickup, 2.4);
             }
             case 'collect-earnings': {
+                // Takings pile up on the counters; loose ground cash is only the
+                // opening stake, so prefer whichever is actually waiting.
+                const stand = this._shops.nearestNeedingAttention(p.x, p.z);
+                if (stand && stand.tillCount > 0) return pad(stand.sellPad, 2.4);
                 const pile = this._cash.nearestPile(p.x, p.z);
                 return pad(pile ?? STATIONS.startCash, 2.1);
             }

@@ -137,6 +137,18 @@ export class CarryLoad {
         return kind;
     }
 
+    /**
+     * Hands over the topmost crate whole and reports what was in it — how a
+     * rack is set down at a shop. Returns 0 when nothing is held.
+     */
+    popCrate(): number {
+        const top = this._stack[this._stack.length - 1];
+        if (!top) return 0;
+        const count = top.items.length;
+        this._discardTop();
+        return count;
+    }
+
     clear(): void {
         while (this._stack.length) this._discardTop();
     }

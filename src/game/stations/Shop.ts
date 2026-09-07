@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { Scene } from 'noonengine';
 import { ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
+import { makeCashStack } from '../procgen/Machines.ts';
+import { ShopStock } from './ShopStock.ts';
+import type { CarryLoad } from '../world/CarryLoad.ts';
 import { at, rot } from '../procgen/Primitives.ts';
 import { makeBunting, makeConstructionFrame, makeShop } from '../procgen/Structures.ts';
 import { CashField } from './Cash.ts';
@@ -28,6 +31,8 @@ export class ShopStand {
     /** Where the player stands to build, then to serve. */
     readonly sellPad: { x: number; z: number };
     readonly queue: CustomerQueue;
+    /** Crates set down beside this stall, which sales draw from. */
+    readonly stock: ShopStock;
 
     /** Money sunk into unlocking this stand so far. */
     paid = 0;
@@ -40,6 +45,11 @@ export class ShopStand {
     private _raise = 0;
     private _building = false;
     private _open = false;
+
+    /** Takings sitting on the counter, one entry per completed order. */
+    private _till: Array<{ obj: THREE.Group; value: number }> = [];
+    private _tillSlots: THREE.Vector3[] = [];
+    private _tillPool: THREE.Group[] = [];
 
     constructor(scene: Scene, state: GameState, cash: CashField, index: number) {
         this._state = state;
@@ -55,10 +65,15 @@ export class ShopStand {
         at(rot(this._frame, 0, yaw, 0), stall.x, 0, stall.z);
         this.group.add(this._frame);
 
-        this._stall = makeShop();
+        const built = makeShop();
+        this._stall = built.group;
+        this._tillSlots = built.cashSlots;
         at(rot(this._stall, 0, yaw, 0), stall.x, 0, stall.z);
         this._stall.visible = false;
         this.group.add(this._stall);
+
+        this.stock = new ShopStock(this.place.dropPad, yaw, SHOP.stockCrates);
+        this.group.add(this.stock.group);
 
         this.group.traverse(o => {
             if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; }
@@ -69,6 +84,28 @@ export class ShopStand {
     }
 
     get isOpen(): boolean { return this._open && this._raise >= 1; }
+
+    /** Cash waiting on the counter. */
+    get tillCount(): number { return this._till.length; }
+
+    get tillValue(): number {
+        let v = 0;
+        for (const t of this._till) v += t.value;
+        return v;
+    }
+
+    /**
+     * False once the counter is covered — no more sales until it's cleared.
+     * Counts orders still in flight, so a burst of completions can't overflow.
+     */
+    get tillHasRoom(): boolean {
+        return this._till.length + this.queue.pendingPayouts < this._tillSlots.length;
+    }
+
+    /** 0..1 how full the counter is, for the pad's fill bar. */
+    get tillFullness(): number {
+        return this._tillSlots.length === 0 ? 0 : this._till.length / this._tillSlots.length;
+    }
     get isBuilding(): boolean { return this._building; }
     get frontWants(): number { return this.queue.frontWants; }
 
@@ -94,16 +131,73 @@ export class ShopStand {
         this.queue.setActive(true);
     }
 
-    /** Hands one bottle over the counter; false when nobody is waiting. */
-    sellBottle(): boolean {
+    /**
+     * One tick of work at this counter:
+     *   1. set down a crate you're carrying,
+     *   2. serve the shopper at the front from the dropped stock,
+     *   3. if that couldn't happen, sweep a stack of takings off the counter.
+     *
+     * Selling comes BEFORE sweeping on purpose. Sweep-first would empty the
+     * till on the same tick it filled, so the cash would never actually be seen
+     * on the counter and the limit would never bite. This way takings visibly
+     * stack up to the cap, block the stall, and clearing them is what starts it
+     * again — while step 3 still drains a counter that has nothing left to sell.
+     *
+     * Both the player and the hired shopkeeper go through this, so automation
+     * plays by exactly the same rules.
+     */
+    serveTick(load: CarryLoad | null, credit: (value: number) => void): boolean {
         if (!this.isOpen) return false;
+
+        if (load && load.kind === 'bottle' && this.stock.hasRoom) {
+            const count = load.popCrate();
+            if (count > 0) { this.stock.addCrate(count); return true; }
+        }
+
+        if (this._sellOne()) return true;
+
+        // Sweep ONLY when the counter is actually in the way — either it's full
+        // and blocking the next sale, or there's nothing left to sell and the
+        // takings would otherwise be stranded. Sweeping on every idle tick (the
+        // obvious version) empties the till the instant it fills, so the cash is
+        // never seen and the limit never means anything.
+        const blocking = !this.tillHasRoom;
+        const idle = this.stock.bottles === 0;
+        if (blocking || idle) {
+            const swept = this.collectTill();
+            if (swept > 0) { credit(swept); return true; }
+        }
+
+        return false;
+    }
+
+    /** Takes one stack of cash off the counter. Returns its value, or 0. */
+    collectTill(): number {
+        const entry = this._till.pop();
+        if (!entry) return 0;
+        this._stall.remove(entry.obj);
+        entry.obj.visible = false;
+        this._tillPool.push(entry.obj);
+        return entry.value;
+    }
+
+    /** True when there is anything here worth walking over for. */
+    get needsAttention(): boolean {
+        return this.isOpen && (this._till.length > 0 || this.stock.bottles > 0);
+    }
+
+    private _sellOne(): boolean {
+        if (!this.tillHasRoom) return false;        // counter covered — clear it first
+        if (this.stock.bottles <= 0) return false;
         if (!this.queue.serve()) return false;
+        this.stock.takeBottle();
         this._state.totalSold++;
         return true;
     }
 
     update(dt: number): void {
         this.queue.update(dt);
+        this.stock.update(dt);
         if (!this._building) return;
 
         this._raise = Math.min(1, this._raise + dt * 1.1);
@@ -131,23 +225,29 @@ export class ShopStand {
         };
     }
 
-    /** A finished order pays out as cash tossed onto the player's side of the fence. */
+    /**
+     * A finished order pays out onto the counter rather than the ground. The
+     * counter only holds `SHOP.tillSlots` of them, so takings left uncollected
+     * eventually stop the stall — which is the whole point of the limit.
+     */
     private _payOut(bottles: number): void {
         const value = bottles * ECONOMY.bottleValue;
         this._state.pendingPayout += value;
-        // Cash lands on the player's side of the counter, a little further in
-        // again from the serving pad so it never covers the pad's own markings.
-        const p = this.place;
-        const inward = {
-            x: (p.sellPad.x - p.stall.x) / SHOP.sellDistance,
-            z: (p.sellPad.z - p.stall.z) / SHOP.sellDistance,
-        };
-        this._cash.drop(
-            p.sellPad.x + inward.x * 1.9 + (Math.random() - 0.5) * 1.6,
-            p.sellPad.z + inward.z * 1.9 + (Math.random() - 0.5) * 1.6,
-            value,
-            p.stall.x, 2.6, p.stall.z,
-        );
+
+        if (!this.tillHasRoom) {
+            // Shouldn't happen (a full till blocks the sale), but never lose money.
+            this._state.addMoney(value);
+            return;
+        }
+
+        const obj = this._tillPool.pop() ?? makeCashStack();
+        obj.visible = true;
+        obj.scale.setScalar(0.75);
+        obj.position.copy(this._tillSlots[this._till.length]);
+        obj.rotation.y = (Math.random() - 0.5) * 0.5;
+        // Parented to the stall so it inherits the stall's yaw automatically.
+        this._stall.add(obj);
+        this._till.push({ obj, value });
     }
 }
 
@@ -194,16 +294,42 @@ export class ShopRow {
     }
 
     /**
-     * Sells one bottle at whichever open stand the seller is standing on.
-     * Kept for callers that only know a position (the assistants).
+     * One tick of counter work at whichever open stall the seller is standing
+     * on. Nothing happens unless they are actually on a serving pad — dropping
+     * stock nearby is not enough to make a sale.
      */
-    sellNear(x: number, z: number, radius = 2.6): boolean {
+    serveTick(x: number, z: number, load: CarryLoad | null, credit: (value: number) => void,
+              radius = 2.4): boolean {
+        const stand = this.standAt(x, z, radius);
+        return stand ? stand.serveTick(load, credit) : false;
+    }
+
+    /** The open stall whose serving pad contains this point, if any. */
+    standAt(x: number, z: number, radius = 2.4): ShopStand | null {
         for (const s of this.stands) {
             if (!s.isOpen) continue;
-            if (Math.hypot(s.sellPad.x - x, s.sellPad.z - z) > radius) continue;
-            if (s.sellBottle()) return true;
+            if (Math.hypot(s.sellPad.x - x, s.sellPad.z - z) <= radius) return s;
         }
-        return false;
+        return null;
+    }
+
+    /** Nearest open stall with takings on the counter or stock left to sell. */
+    nearestNeedingAttention(x: number, z: number): ShopStand | null {
+        let best: ShopStand | null = null;
+        let bestD = Infinity;
+        for (const s of this.stands) {
+            if (!s.needsAttention) continue;
+            const d = (s.sellPad.x - x) ** 2 + (s.sellPad.z - z) ** 2;
+            if (d < bestD) { bestD = d; best = s; }
+        }
+        return best;
+    }
+
+    /** Total cash sitting uncollected across every counter — drives the HUD. */
+    get tillTotal(): number {
+        let v = 0;
+        for (const s of this.stands) v += s.tillValue;
+        return v;
     }
 
     update(dt: number): void {

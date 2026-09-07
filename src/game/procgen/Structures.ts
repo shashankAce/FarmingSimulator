@@ -201,7 +201,7 @@ export function makeCow(rng: () => number): THREE.Group {
  * game's steep top-down camera it just becomes a lid hiding the entire counter —
  * the reference stall is open for exactly that reason.
  */
-export function makeShop(): THREE.Group {
+export function makeShop(): { group: THREE.Group; cashSlots: THREE.Vector3[] } {
     const g = new THREE.Group();
 
     // Counter body, with a painted front panel facing the queue.
@@ -228,19 +228,26 @@ export function makeShop(): THREE.Group {
     at(rot(sign, 0, -0.35, 0), 2.9, 0, 0.9);
     g.add(sign);
 
-    // Produce and stock on the counter.
-    for (let i = 0; i < 4; i++) {
-        g.add(at(makeDisplayBottle(), -1.85 + i * 1.05, 1.33, 0.95));
-    }
-    g.add(at(cyl(0.36, 0.3, 0.55, 8, C.JUICE), 1.95, 1.6, 1.15));
-    g.add(at(cyl(0.4, 0.4, 0.2, 8, C.WOOD), -2.1, 1.42, 1.4));
+    // ── Dressing, kept to the left end ──
+    // Only two display bottles: the rest of the counter is working surface for
+    // takings, which have to physically fit somewhere the player can sweep up.
+    g.add(at(makeDisplayBottle(), -0.95, 1.33, 0.95));
+    g.add(at(makeDisplayBottle(), -0.35, 1.33, 0.95));
+    g.add(at(cyl(0.36, 0.3, 0.55, 8, C.JUICE), -1.6, 1.6, 1.15));
+    g.add(at(cyl(0.4, 0.4, 0.2, 8, C.WOOD), -2.15, 1.42, 1.35));
     for (let i = 0; i < 3; i++) {
-        const carrot = at(cyl(0.09, 0.02, 0.42, 6, C.CARROT), -2.1 + (i - 1) * 0.16, 1.62, 1.4);
+        const carrot = at(cyl(0.09, 0.02, 0.42, 6, C.CARROT), -2.15 + (i - 1) * 0.16, 1.62, 1.35);
         rot(carrot, Math.PI + 0.35, 0, (i - 1) * 0.3);
         g.add(carrot);
     }
 
-    return g;
+    // ── Till slots: where completed orders stack up as cash ──
+    const cashSlots: THREE.Vector3[] = [];
+    for (let i = 0; i < 4; i++) {
+        cashSlots.push(new THREE.Vector3(0.55 + i * 0.62, 1.36, 1.1));
+    }
+
+    return { group: g, cashSlots };
 }
 
 /**
@@ -278,28 +285,42 @@ function makeDisplayBottle(): THREE.Group {
  * is close enough to see them properly.
  */
 export function makeConstructionFrame(): THREE.Group {
+    // Authored in LOCAL space facing +Z, exactly like `makeShop()`. `ShopStand`
+    // yaws the whole group to face outward from whichever fence it sits on, so
+    // size it in these axes and the rotation takes care of itself:
+    //
+    //   box(w, h, d)  ->  w = X = WIDTH,  h = Y = HEIGHT,  d = Z = DEPTH
+    //
+    //   X  width   runs ALONG the fence      (-X and +X are the stall's two ends)
+    //   Y  height  up
+    //   Z  depth   runs ACROSS the fence     (+Z = customer side, -Z = player side)
+    //
+    // Keep the deck's X close to the finished stall's 5.0 counter width, or the
+    // plot appears to grow or shrink the moment it converts.
     const g = new THREE.Group();
 
     // Timber deck, so the frame is clearly standing on something.
     g.add(at(box(5.0, 0.22, 3.4, C.WOOD_LIGHT), 0, 0.11, 0.05));
     g.add(at(box(5.2, 0.14, 3.6, C.WOOD_DARK), 0, 0.03, 0.05));
 
+    // Kept low on purpose: a locked plot reads as *less* than a finished stall,
+    // so the scaffolding must not out-tower the counter that replaces it.
     for (const x of [-2.2, 2.2]) {
         for (const z of [-1.4, 1.5]) {
-            g.add(at(box(0.32, 2.4, 0.32, C.WOOD_DARK), x, 1.2, z));
+            g.add(at(box(0.3, 1.35, 0.3, C.WOOD_DARK), x, 0.68, z));
         }
     }
-    for (const y of [1.0, 2.1]) {
+    for (const y of [0.58, 1.2]) {
         for (const z of [-1.4, 1.5]) {
-            g.add(at(box(4.6, 0.18, 0.18, C.WOOD), 0, y, z));
+            g.add(at(box(4.6, 0.16, 0.16, C.WOOD), 0, y, z));
         }
-        g.add(at(box(0.18, 0.18, 3.0, C.WOOD), -2.2, y, 0.05));
-        g.add(at(box(0.18, 0.18, 3.0, C.WOOD), 2.2, y, 0.05));
+        g.add(at(box(0.16, 0.16, 3.0, C.WOOD), -2.2, y, 0.05));
+        g.add(at(box(0.16, 0.16, 3.0, C.WOOD), 2.2, y, 0.05));
     }
 
     // Diagonal braces on the front face — the detail that says "under construction".
     for (const dir of [-1, 1]) {
-        const brace = at(box(2.6, 0.16, 0.16, C.WOOD_PALE), dir * 1.1, 1.55, 1.5);
+        const brace = at(box(2.2, 0.15, 0.15, C.WOOD_PALE), dir * 1.15, 0.9, 1.5);
         rot(brace, 0, 0, dir * 0.42);
         g.add(brace);
     }

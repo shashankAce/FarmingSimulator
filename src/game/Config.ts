@@ -135,7 +135,14 @@ export const SHOP = {
     /** How far inside the fence the stall body sits. */
     inset: 2.0,
     /** From the stall origin to the player's serving pad, further inward. */
-    sellDistance: 2.6,
+    sellDistance: 1.5,
+    /** Where dropped crates land, relative to the stall: along the fence, then inward. */
+    dropAlong: -3.0,
+    dropInward: 0.6,
+    /** Completed orders stack up here; sales stall once it's full. */
+    tillSlots: 4,
+    /** Crates that can be set down at one stall. */
+    stockCrates: 3,
     /** From the stall origin out to the counter face. */
     counterOffset: 1.7,
     /** Size of the serving / construction pad. */
@@ -164,6 +171,8 @@ export interface ShopPlacement {
     yaw: number;
     /** Where the player stands to build, then to serve. */
     sellPad: { x: number; z: number };
+    /** Where carried crates are set down beside the stall. */
+    dropPad: { x: number; z: number };
     /** The point shoppers turn to face. */
     counter: { x: number; z: number };
     queue: {
@@ -200,6 +209,7 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         stall,
         yaw: v.yaw,
         sellPad: off(stall, 0, -SHOP.sellDistance),
+        dropPad: off(stall, SHOP.dropAlong, -SHOP.dropInward),
         counter: off(stall, 0, SHOP.counterOffset),
         queue: {
             slot0,

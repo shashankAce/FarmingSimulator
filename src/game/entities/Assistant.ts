@@ -143,11 +143,16 @@ export class SellerAssistant extends Assistant {
             }
             case 'selling': {
                 this.setMove(0, 0);
-                if (this.load.isEmpty) { this._phase = 'to-cash'; break; }
+                const stand = this.ctx.shops.standAt(this.x, this.z);
+                // Stay until the load is down AND the counter is clear — leaving
+                // takings behind is what jams the stall for everyone else.
+                if (this.load.isEmpty && (!stand || !stand.needsAttention)) {
+                    this._phase = 'to-cash';
+                    break;
+                }
                 if (this.tickTransfer(dt)) {
-                    // If no shop is open yet, wait here holding the load rather
-                    // than dumping it — the sale resolves itself once one is.
-                    if (this.ctx.shops.sellNear(this.x, this.z)) this.load.pop();
+                    this.ctx.shops.serveTick(this.x, this.z, this.load,
+                        value => this.ctx.creditMoney(value));
                 }
                 break;
             }

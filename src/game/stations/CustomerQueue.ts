@@ -91,6 +91,15 @@ export class CustomerQueue {
         return f && f.phase === 'waiting' ? f.wants : 0;
     }
 
+    /**
+     * Orders that have been fully served but whose payout hasn't landed yet
+     * (the shopper is still doing their happy hop). The till has to reserve
+     * room for these or a burst of completions overflows it.
+     */
+    get pendingPayouts(): number {
+        return this._line.filter(c => c.phase === 'celebrating').length;
+    }
+
     get waitingCount(): number {
         return this._line.filter(c => c.phase === 'waiting').length;
     }
