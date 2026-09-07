@@ -1,66 +1,46 @@
-import { GameEngine, Scene, Node, AssetItem, assetCache, Sprite, Label, createPlatform, ResolutionPolicy, RendererType, InspectorOverlay, DEBUG } from 'noonengine';
+import { DEBUG, GameEngine, InspectorOverlay, RendererType, ResolutionPolicy, createPlatform } from 'noonengine';
 import { ThreeSceneSystem } from 'noonengine/3d';
 
-const GAME_WIDTH: number = 720;
-const GAME_HEIGHT: number = 1280;
+import { GAME_HEIGHT, GAME_WIDTH } from './game/Config.ts';
+import { FarmScene } from './game/FarmScene.ts';
 
-// Host-platform wrapper — the same three calls (initialize / reportProgress /
-// notifyReady) work for every target, so nothing below ever branches on which
-// platform this is. With no platform targeted (a plain `npm run dev`/`npm run
-// build`) this is a working no-op, so leave it in even if you only ship to the
-// open web: it costs nothing, and it's what makes `noonengine pack
-// --platform=facebook|telegram|youtube` work later without touching this file.
+/**
+ * FarmingSimulator — bootstrap.
+ *
+ * Every art asset in this game is generated procedurally from THREE primitives
+ * at runtime, so there is nothing in `res/` to preload: the loading "stage" is
+ * just the scene building itself, which happens synchronously in `onLoad()`.
+ */
+
+// Host-platform wrapper. Must be awaited BEFORE constructing GameEngine.
 const platform = createPlatform();
-await platform.initialize();  // must be awaited BEFORE constructing GameEngine
+await platform.initialize();
 
 const engine = new GameEngine({
-    renderType: RendererType.WEBGL,
+    renderType: RendererType.WEBGL,   // 3D requires WebGL2
     enable3D: true,
     sceneSystem3D: ThreeSceneSystem,
-    showStats: true,
+    showStats: DEBUG,
 });
 
-class MainScene extends Scene {
-
-    onLoad() {
-
-        const list: AssetItem[] = [
-            { src: 'res/bunny.jpg', type: 'image', alias: 'bunny' },
-        ]
-
-        // The progress callback drives the host's own loading bar (Facebook
-        // shows one; a plain web build ignores it).
-        assetCache.preloadAssets(list, p => platform.reportProgress(p))
-            .then(() => this.updateUI());
-    }
-
-    updateUI() {
-        const node = new Node(GAME_WIDTH / 2, GAME_HEIGHT / 2);
-        const label: Label = node.addComponent(Label);
-        label.text = 'Hello, NoonEngine!';
-        label.fontSize = 32;
-        label.color = '#ffffff';
-        this.addChild(node);
-
-        let buttonNode = new Node(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 100);
-        buttonNode.name = 'button';
-        let spr = buttonNode.addComponent(Sprite);
-        const asset = assetCache.getAsset('button');
-        spr.texture = asset;
-        this.addChild(buttonNode);
-
-        // Dismisses the host's loading screen. Move this to whenever YOUR game
-        // is genuinely playable — too early and the player watches a blank
-        // canvas behind a dismissed spinner; never, and some hosts eventually
-        // time the game out.
-        platform.notifyReady();
-    }
-
-    update(dt: number): void { }
-}
 if (DEBUG) {
-    const inspectorOverlay = new InspectorOverlay(engine);
+    // eslint-disable-next-line no-new
+    new InspectorOverlay(engine);
 }
+
+// FIXED_HEIGHT: the design height always fits and the width crops or
+// pillarboxes to suit the window. NO_BORDER was tried and is wrong here — it
+// scales the design box to *cover*, which on a mismatched aspect zooms in hard
+// enough that the player is looking at a few square metres of soil. The HUD
+// anchors to `display.getVisibleRect()` rather than the raw design box, so it
+// tracks whatever survives the crop either way.
 engine.setDesignResolution(GAME_WIDTH, GAME_HEIGHT, ResolutionPolicy.FIXED_HEIGHT);
-engine.runScene(new MainScene());
+
+platform.reportProgress(1);
+engine.runScene(new FarmScene());
 engine.start();
+
+// The scene builds its whole world synchronously in onLoad(), so by the time
+// runScene() returns the game is genuinely playable — the right moment to
+// dismiss the host's loading screen.
+platform.notifyReady();
