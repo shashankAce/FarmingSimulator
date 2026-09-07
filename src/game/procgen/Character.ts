@@ -23,8 +23,11 @@ export interface CharacterRig {
     legR: THREE.Group;
     earL: THREE.Group;
     earR: THREE.Group;
-    /** Where the carry stack is parented — just above the head. */
-    carryAnchor: THREE.Object3D;
+    /**
+     * Where carried crates are parented — out in front at waist height, so they
+     * read as being held on the forearms rather than balanced on the head.
+     */
+    holdAnchor: THREE.Object3D;
     /** Phase accumulator owned by `animateCharacter`. */
     phase: number;
 }
@@ -134,30 +137,40 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
         body.add(leg);
     }
 
-    // ── Carry anchor ──
-    const carryAnchor = new THREE.Object3D();
-    at(carryAnchor, 0, 1.9, 0.12);
-    root.add(carryAnchor);
+    // ── Hold anchor ──
+    const holdAnchor = new THREE.Object3D();
+    at(holdAnchor, 0, 0.34, 0.72);
+    root.add(holdAnchor);
 
     root.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = false; } });
 
-    return { root, body, head, armL, armR, legL, legR, earL, earR, carryAnchor, phase: 0 };
+    return { root, body, head, armL, armR, legL, legR, earL, earR, holdAnchor, phase: 0 };
 }
 
 /**
  * Drives the walk cycle. `speed01` is normalised movement speed (0 = idle,
  * 1 = full tilt); at 0 the rig settles into a gentle idle breath instead.
+ *
+ * While `carrying`, the arms are locked out in front holding a crate instead of
+ * counter-swinging — the legs and body keep their full cycle, which is what
+ * sells the weight.
  */
-export function animateCharacter(rig: CharacterRig, dt: number, speed01: number): void {
+export function animateCharacter(rig: CharacterRig, dt: number, speed01: number, carrying = false): void {
     rig.phase += dt * (4.0 + speed01 * 9.0);
     const s = Math.min(1, speed01);
     const swing = Math.sin(rig.phase);
 
-    // Legs alternate; arms counter-swing.
+    // Legs alternate; arms counter-swing unless they're busy holding something.
     rig.legL.rotation.x = swing * 0.85 * s;
     rig.legR.rotation.x = -swing * 0.85 * s;
-    rig.armL.rotation.x = -swing * 0.7 * s;
-    rig.armR.rotation.x = swing * 0.7 * s;
+    if (carrying) {
+        // Reach forward and slightly inward, so both paws meet under the crate.
+        rig.armL.rotation.set(-1.32, 0, 0.3);
+        rig.armR.rotation.set(-1.32, 0, -0.3);
+    } else {
+        rig.armL.rotation.set(-swing * 0.7 * s, 0, 0);
+        rig.armR.rotation.set(swing * 0.7 * s, 0, 0);
+    }
 
     // Body bob is double-frequency (one hop per step, not per stride).
     rig.body.position.y = Math.abs(Math.sin(rig.phase)) * 0.11 * s;

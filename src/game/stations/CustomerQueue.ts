@@ -1,11 +1,26 @@
 import * as THREE from 'three';
 import { Graphics, Label, Node, Scene, display } from 'noonengine';
-import { QUEUE, STATIONS } from '../Config.ts';
-import { C } from '../Palette.ts';
+import { QUEUE } from '../Config.ts';
 import { animateCustomer, hopCustomer, makeCustomer, type CustomerRig } from '../procgen/Customer.ts';
 import { makeRng } from '../procgen/Primitives.ts';
 
 type Phase = 'walking-in' | 'waiting' | 'celebrating' | 'leaving';
+
+/**
+ * Where one stand's line stands, in world XZ. Every stall owns its own layout
+ * so several shops can trade side by side without their queues interleaving.
+ */
+export interface QueueLayout {
+    /** The point shoppers turn to face. */
+    counter: { x: number; z: number };
+    /** Position of the shopper being served. */
+    slot0: { x: number; z: number };
+    /** Offset from each slot to the next, further back in the line. */
+    step: { x: number; z: number };
+    slots: number;
+    spawn: { x: number; z: number };
+    exit: { x: number; z: number };
+}
 
 /** The 2D order bubble floating over one shopper's head. */
 interface Bubble {
@@ -43,7 +58,8 @@ export class CustomerQueue {
 
     private _scene: Scene;
     private _onPay: (value: number) => void;
-    private _rng = makeRng(0x5EED);
+    private _layout: QueueLayout;
+    private _rng: () => number;
 
     /** Index in this array IS the queue slot — index 0 is being served. */
     private _line: Customer[] = [];
@@ -53,9 +69,11 @@ export class CustomerQueue {
     private _respawn = 0;
     private _active = false;
 
-    constructor(scene: Scene, onPay: (value: number) => void) {
+    constructor(scene: Scene, layout: QueueLayout, onPay: (value: number) => void, seed = 0x5EED) {
         this._scene = scene;
+        this._layout = layout;
         this._onPay = onPay;
+        this._rng = makeRng(seed);
     }
 
     /**
@@ -103,7 +121,7 @@ export class CustomerQueue {
         this._updateLeaving(dt);
 
         // Keep the queue topped up so demand never blocks the loop.
-        if (this._line.length < QUEUE.slots) {
+        if (this._line.length < this._layout.slots) {
             this._respawn -= dt;
             if (this._respawn <= 0) {
                 this._spawn();
@@ -134,15 +152,16 @@ export class CustomerQueue {
     // ─────────────────────────────────────────────────────────────────────────
 
     private _slotPos(index: number): { x: number; z: number } {
+        const l = this._layout;
         return {
-            x: QUEUE.x + index * QUEUE.dx,
-            z: QUEUE.z0 + index * QUEUE.dz,
+            x: l.slot0.x + index * l.step.x,
+            z: l.slot0.z + index * l.step.z,
         };
     }
 
     /** Yaw that turns a shopper to face the counter from where they're standing. */
     private _facingCounter(x: number, z: number): number {
-        return Math.atan2(STATIONS.shop.x - x, STATIONS.shop.z - z);
+        return Math.atan2(this._layout.counter.x - x, this._layout.counter.z - z);
     }
 
     private _updateLine(dt: number): void {
@@ -181,7 +200,7 @@ export class CustomerQueue {
     private _updateLeaving(dt: number): void {
         for (let i = this._leaving.length - 1; i >= 0; i--) {
             const c = this._leaving[i];
-            const done = this._step(c, QUEUE.exitX, QUEUE.exitZ, dt, 1.0);
+            const done = this._step(c, this._layout.exit.x, this._layout.exit.z, dt, 1.0);
             this._apply(c, dt);
             if (done) {
                 this._leaving.splice(i, 1);
@@ -231,9 +250,9 @@ export class CustomerQueue {
 
         const c: Customer = {
             rig,
-            x: QUEUE.spawnX,
-            z: QUEUE.spawnZ,
-            yaw: this._facingCounter(QUEUE.spawnX, QUEUE.spawnZ),
+            x: this._layout.spawn.x,
+            z: this._layout.spawn.z,
+            yaw: this._facingCounter(this._layout.spawn.x, this._layout.spawn.z),
             wants: ordered,
             ordered,
             phase: 'walking-in',
@@ -304,5 +323,4 @@ export class CustomerQueue {
     }
 }
 
-/** Exposed so the scene can tint the payout marker to match the cash. */
-export const QUEUE_MARKER_TINT = C.MONEY;
+

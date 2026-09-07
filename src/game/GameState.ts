@@ -9,6 +9,7 @@ export type Objective =
     | 'collect-bottles'
     | 'sell-bottles'
     | 'collect-earnings'
+    | 'unlock-shop'
     | 'expand';
 
 /**

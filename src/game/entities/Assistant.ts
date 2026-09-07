@@ -4,14 +4,15 @@ import { FARMER_COLORS, SELLER_COLORS } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { CarrotField } from '../world/CarrotField.ts';
 import type { Production } from '../stations/Production.ts';
-import type { Shop } from '../stations/Shop.ts';
+import type { ShopRow } from '../stations/Shop.ts';
 import type { CashField } from '../stations/Cash.ts';
 
 /** Everything an assistant needs to run the loop without knowing about the scene. */
 export interface FarmContext {
     field: CarrotField;
     production: Production;
-    shop: Shop;
+    /** Every stand; the seller picks whichever open one is nearest. */
+    shops: ShopRow;
     cash: CashField;
     /** Credits money directly — used when a seller collects a payout stack. */
     creditMoney(amount: number): void;
@@ -73,14 +74,14 @@ export class FarmerAssistant extends Assistant {
             }
             case 'harvesting': {
                 this.setMove(0, 0);
-                if (this.stack.isFull) { this._phase = 'to-juicer'; break; }
+                if (!this.load.accepts('carrot')) { this._phase = 'to-juicer'; break; }
                 if (this.tickTransfer(dt)) {
-                    if (this.ctx.field.harvestNearest(this.x, this.z, 2.6) && this.stack.accepts('carrot')) {
-                        this.stack.push('carrot');
+                    if (this.ctx.field.harvestNearest(this.x, this.z, 2.6)) {
+                        this.load.push('carrot');
                     } else {
                         // Patch exhausted: either move on, or go deliver what we have.
                         this._target = null;
-                        this._phase = this.stack.isEmpty ? 'to-field' : 'to-juicer';
+                        this._phase = this.load.isEmpty ? 'to-field' : 'to-juicer';
                     }
                 }
                 break;
@@ -91,10 +92,10 @@ export class FarmerAssistant extends Assistant {
             }
             case 'unloading': {
                 this.setMove(0, 0);
-                if (this.stack.isEmpty) { this._target = null; this._phase = 'to-field'; break; }
+                if (this.load.isEmpty) { this._target = null; this._phase = 'to-field'; break; }
                 if (this.tickTransfer(dt)) {
-                    // Racks full — wait here holding the load rather than binning it.
-                    if (this.ctx.production.acceptCarrot()) this.stack.pop();
+                    // Stand full — wait here holding the load rather than binning it.
+                    if (this.ctx.production.acceptCarrot()) this.load.pop();
                 }
                 break;
             }
@@ -119,11 +120,13 @@ export class SellerAssistant extends Assistant {
             }
             case 'loading': {
                 this.setMove(0, 0);
-                if (this.stack.isFull) { this._phase = 'to-shop'; break; }
+                if (!this.load.canAdopt('bottle')) { this._phase = 'to-shop'; break; }
                 if (this.tickTransfer(dt)) {
-                    if (this.ctx.production.rackCount > 0 && this.stack.accepts('bottle')) {
-                        if (this.ctx.production.takeBottle()) this.stack.push('bottle');
-                    } else if (!this.stack.isEmpty) {
+                    if (this.ctx.production.readyRackCount > 0) {
+                        // Whole racks are the unit of transport now.
+                        const bottles = this.ctx.production.takeRack();
+                        if (bottles > 0) this.load.adoptFilled('bottle', bottles);
+                    } else if (!this.load.isEmpty) {
                         this._phase = 'to-shop';
                     } else if (this.ctx.cash.count > 0) {
                         // Nothing to carry — go tidy up loose cash instead of idling.
@@ -133,31 +136,33 @@ export class SellerAssistant extends Assistant {
                 break;
             }
             case 'to-shop': {
-                if (this.moveToward(STATIONS.shopSell.x, STATIONS.shopSell.z, 1.2)) this._phase = 'selling';
+                const stand = this.ctx.shops.nearestOpen(this.x, this.z);
+                if (!stand) { this.setMove(0, 0); break; }   // nothing open yet — hold the load
+                if (this.moveToward(stand.sellPad.x, stand.sellPad.z, 1.2)) this._phase = 'selling';
                 break;
             }
             case 'selling': {
                 this.setMove(0, 0);
-                if (this.stack.isEmpty) { this._phase = 'to-cash'; break; }
+                if (this.load.isEmpty) { this._phase = 'to-cash'; break; }
                 if (this.tickTransfer(dt)) {
-                    // If the shop somehow isn't open yet, wait here holding the
-                    // load rather than dumping it — the sale resolves itself the
-                    // moment the stall finishes rising.
-                    if (this.ctx.shop.sellBottle()) this.stack.pop();
+                    // If no shop is open yet, wait here holding the load rather
+                    // than dumping it — the sale resolves itself once one is.
+                    if (this.ctx.shops.sellNear(this.x, this.z)) this.load.pop();
                 }
                 break;
             }
             case 'to-cash': {
-                if (this.ctx.cash.count === 0) { this._phase = 'to-rack'; break; }
-                if (this.moveToward(STATIONS.shopPayout.x, STATIONS.shopPayout.z, 1.0)) this._phase = 'collecting';
+                const pile = this.ctx.cash.nearestPile(this.x, this.z);
+                if (!pile) { this._phase = 'to-rack'; break; }
+                if (this.moveToward(pile.x, pile.z, 1.0)) this._phase = 'collecting';
                 break;
             }
             case 'collecting': {
                 this.setMove(0, 0);
                 if (this.tickTransfer(dt)) {
-                    const value = this.ctx.cash.collectNearest(this.x, this.z, 3.4);
+                    const value = this.ctx.cash.collectNearest(this.x, this.z, 2.6);
                     if (value > 0) this.ctx.creditMoney(value);
-                    else this._phase = 'to-rack';
+                    else this._phase = this.ctx.cash.count > 0 ? 'to-cash' : 'to-rack';
                 }
                 break;
             }

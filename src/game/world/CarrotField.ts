@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Node, Scene } from 'noonengine';
 import { InstancedMesh3D } from 'noonengine/3d';
-import { FIELD } from '../Config.ts';
+import { FIELD, fieldBounds } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, box, makeRng, rangeOf } from '../procgen/Primitives.ts';
 import { carrotLeafGeometry, carrotMaterial, carrotRootGeometry, leafMaterial } from '../procgen/Machines.ts';
@@ -52,10 +52,13 @@ export class CarrotField {
         const strideX = plotW + gap;
         const strideZ = plotD + gap;
 
-        this.minX = originX - plotW / 2 - gap;
-        this.maxX = originX + (cols - 1) * strideX + plotW / 2 + gap;
-        this.minZ = originZ - plotD / 2 - gap;
-        this.maxZ = originZ + (rows - 1) * strideZ + plotD / 2 + gap;
+        // Bounds come from config so the field's extent is knowable without
+        // constructing one — see `fieldBounds()`.
+        const bounds = fieldBounds();
+        this.minX = bounds.minX;
+        this.maxX = bounds.maxX;
+        this.minZ = bounds.minZ;
+        this.maxZ = bounds.maxZ;
 
         // One dark tilled base under everything, so the gaps between plots read
         // as soil paths rather than grass.

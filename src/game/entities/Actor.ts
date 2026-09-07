@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Node, Scene } from 'noonengine';
 import { Group3D } from 'noonengine/3d';
 import { animateCharacter, CharacterColors, CharacterRig, makeCharacter } from '../procgen/Character.ts';
-import { CarryStack } from '../world/CarryStack.ts';
+import { CarryLoad } from '../world/CarryLoad.ts';
 import { clampToYard } from '../world/Environment.ts';
 import { PLAYER } from '../Config.ts';
 
@@ -17,7 +17,7 @@ import { PLAYER } from '../Config.ts';
  */
 export class Actor {
     readonly rig: CharacterRig;
-    readonly stack: CarryStack;
+    readonly load: CarryLoad;
     readonly node: Node;
 
     x: number;
@@ -43,7 +43,7 @@ export class Actor {
         group.object3D.add(this.rig.root);
 
         this.rig.root.position.set(this.x, 0, this.z);
-        this.stack = new CarryStack(this.rig.carryAnchor, opts.capacity);
+        this.load = new CarryLoad(this.rig.holdAnchor, opts.capacity);
     }
 
     /** Sets this frame's movement intent. Any magnitude; it gets normalised. */
@@ -94,13 +94,13 @@ export class Actor {
         this.rig.root.position.set(this.x, 0, this.z);
         this.rig.root.rotation.y = this.yaw;
 
-        animateCharacter(this.rig, dt, this._speed01);
-        this.stack.update(dt);
+        animateCharacter(this.rig, dt, this._speed01, this.load.isCarrying);
+        this.load.update(dt);
     }
 
     /** Removes the actor from the scene (used if an upgrade is ever refunded). */
     destroy(): void {
-        this.stack.clear();
+        this.load.clear();
         this.node.removeFromParent(true);
     }
 }

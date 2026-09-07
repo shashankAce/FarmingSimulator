@@ -102,6 +102,19 @@ export function makeConveyor(x0: number, x1: number): { group: THREE.Group; roll
         }
     }
 
+    // Housings over both ends. Bottles are spawned inside the head cover and
+    // retired inside the tail one, so the player never sees one blink into
+    // existence on bare belt.
+    for (const [x, dir] of [[x0, 1], [x1, -1]] as Array<[number, number]>) {
+        const cover = new THREE.Group();
+        cover.add(at(box(1.5, 1.15, 1.9, C.METAL_DARK), 0, BELT_Y + 0.72, 0));
+        cover.add(at(box(1.62, 0.16, 2.0, C.WOOD), 0, BELT_Y + 1.32, 0));
+        // Angled lip on the belt-facing side so it reads as a mouth, not a wall.
+        cover.add(at(rot(box(0.5, 0.5, 1.9, C.METAL), 0, 0, dir * 0.5), dir * 0.72, BELT_Y + 0.32, 0));
+        at(cover, x + dir * 0.35, 0, 0);
+        g.add(cover);
+    }
+
     // Rollers poking above the belt line.
     const rollers: THREE.Mesh[] = [];
     const n = Math.max(3, Math.round(len / 1.1));
@@ -177,7 +190,8 @@ export function makeEmptyBottle(): THREE.Group {
 
 /** A single carrot with its leafy top — the carryable version. */
 export function makeCarrot(): THREE.Group {
-    const body = at(rot(cyl(0.14, 0.02, 0.62, 6, C.CARROT), Math.PI, 0, 0), 0, 0.31, 0);
+    // Wide at the crown, tapering to the tip (see carrotRootGeometry).
+    const body = at(cyl(0.17, 0.02, 0.62, 7, C.CARROT), 0, 0.31, 0);
     const g = group(body);
     for (let i = 0; i < 3; i++) {
         const leaf = at(box(0.08, 0.3, 0.08, C.LEAF), 0, 0.74, 0);
@@ -209,8 +223,9 @@ export function makeCashStack(): THREE.Group {
  * root and leaves matters far more than per-carrot flexibility.
  */
 export function carrotRootGeometry(): THREE.BufferGeometry {
-    const g = new THREE.CylinderGeometry(0.16, 0.03, 0.5, 6);
-    g.rotateX(Math.PI);          // taper points down, into the soil
+    // Widest at the crown where the leaves sprout, tapering to a point that
+    // buries itself in the soil — a carrot, not an ice-cream cone.
+    const g = new THREE.CylinderGeometry(0.2, 0.02, 0.54, 7);
     g.translate(0, 0.16, 0);
     return g;
 }

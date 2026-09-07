@@ -91,6 +91,18 @@ export class CashField {
         return p.value;
     }
 
+    /** Position of the nearest settled stack, for steering toward loose cash. */
+    nearestPile(x: number, z: number): { x: number; z: number } | null {
+        let best: Pile | null = null;
+        let bestD = Infinity;
+        for (const p of this._piles) {
+            if (p.t < 1) continue;
+            const d = (p.to.x - x) ** 2 + (p.to.z - z) ** 2;
+            if (d < bestD) { bestD = d; best = p; }
+        }
+        return best ? { x: best.to.x, z: best.to.z } : null;
+    }
+
     update(dt: number): void {
         for (const p of this._piles) {
             if (p.t < 1) {

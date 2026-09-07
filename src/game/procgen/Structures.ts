@@ -217,12 +217,6 @@ export function makeShop(): THREE.Group {
         g.add(at(box(w, 0.06, 1.3, 0xe4574f), (i - 3) * w, 1.34, 1.15));
     }
 
-    // Low back shelf — gives the stall depth without blocking the view.
-    g.add(at(box(4.6, 0.16, 0.7, C.WOOD), 0, 0.95, -0.7));
-    for (const x of [-2.1, 2.1]) {
-        g.add(at(box(0.2, 0.95, 0.2, C.WOOD_DARK), x, 0.48, -0.7));
-    }
-
     // Standing sign at one end, angled toward the queue.
     const sign = new THREE.Group();
     sign.add(at(box(0.18, 1.9, 0.18, C.WOOD_DARK), 0, 0.95, 0));

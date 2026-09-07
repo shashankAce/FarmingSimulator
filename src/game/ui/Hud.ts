@@ -5,9 +5,10 @@ const OBJECTIVE_TEXT: Record<Objective, string> = {
     'collect-start-cash': 'Grab the cash!',
     'harvest-carrots': 'Harvest some carrots',
     'deliver-carrots': 'Tip the carrots into the juicer',
-    'collect-bottles': 'Grab bottles from the rack',
+    'collect-bottles': 'Grab a rack of juice',
     'sell-bottles': 'Sell the juice at your shop',
     'collect-earnings': 'Collect your earnings',
+    'unlock-shop': 'Open another juice stand',
     'expand': 'Hire a helper',
 };
 

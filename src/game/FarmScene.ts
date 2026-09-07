@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { DEBUG, Label, Node, Scene, display } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
-import { CAMERA, ECONOMY, FIELD, MACHINE, PLAYER, STATIONS } from './Config.ts';
+import { CAMERA, ECONOMY, MACHINE, PLAYER, SHOP, STATIONS, validateLayout } from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
 
@@ -15,7 +15,7 @@ import { Zone } from './world/Zones.ts';
 import { makeDropIndicator, makeGroundArrow, updateDropIndicator } from './world/Indicators.ts';
 
 import { Production } from './stations/Production.ts';
-import { Shop } from './stations/Shop.ts';
+import { ShopRow, type ShopStand } from './stations/Shop.ts';
 import { CashField } from './stations/Cash.ts';
 
 import { Player } from './entities/Player.ts';
@@ -23,6 +23,14 @@ import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/A
 
 import { Hud } from './ui/Hud.ts';
 import { Joystick } from './ui/Joystick.ts';
+
+/** A 2D label pinned to a world position, shown only when `text()` returns one. */
+interface WorldLabel {
+    node: Node;
+    label: Label;
+    world: THREE.Vector3;
+    text: () => string | null;
+}
 
 /**
  * The whole game.
@@ -39,35 +47,30 @@ export class FarmScene extends Scene {
     private _player!: Player;
     private _field!: CarrotField;
     private _production!: Production;
-    private _shop!: Shop;
+    private _shops!: ShopRow;
     private _cash!: CashField;
     private _hud!: Hud;
     private _joystick!: Joystick;
 
     private _camera!: Camera3D;
     private _sun!: DirectionalLight3D;
-    /** Flat arrow on the grass beside the player, pointing the way to walk. */
     private _groundArrow!: THREE.Group;
-    /** Chunky arrow hanging over the destination itself. */
     private _dropIndicator!: THREE.Group;
     private _elapsed = 0;
 
     private _zones: Record<string, Zone> = {};
+    /** One serving/construction pad per stand, indexed to match `ShopRow.stands`. */
+    private _shopZones: Zone[] = [];
     private _farmer: FarmerAssistant | null = null;
     private _seller: SellerAssistant | null = null;
 
-    /** Fixed-interval accumulator shared by every "stand here to transfer" action. */
     private _transferTimer = 0;
-
-    /** World-space hire prompts, projected onto the 2D layer each frame. */
-    private _hireLabels: Array<{ label: Label; node: Node; world: THREE.Vector3; key: 'farmer' | 'seller' }> = [];
+    private _worldLabels: WorldLabel[] = [];
 
     onLoad(): void {
         const sys = this.sceneSystem3D;
 
         sys.scene.background = new THREE.Color(SKY);
-        // Fog only bites well past the fence, so it softens the horizon without
-        // touching anything the player interacts with.
         sys.scene.fog = new THREE.Fog(SKY, 70, 165);
 
         sys.onRendererReady = (renderer) => {
@@ -89,13 +92,12 @@ export class FarmScene extends Scene {
         this._production = new Production(this._state);
         sys.scene.add(this._production.group);
 
-        this._shop = new Shop(this._state, this._cash, this);
-        sys.scene.add(this._shop.group);
+        this._shops = new ShopRow(this, this._state, this._cash);
+        sys.scene.add(this._shops.group);
 
         this._buildZones();
         this._buildSignposts();
 
-        // The starting stake, lying in its marked rectangle.
         this._cash.scatter(
             STATIONS.startCash.x, STATIONS.startCash.z,
             STATIONS.startCash.w, STATIONS.startCash.d,
@@ -114,25 +116,21 @@ export class FarmScene extends Scene {
         this._state.toast('Collect the cash!');
 
         if (DEBUG) {
-            // Dev handle for driving the game from a console or a browser test —
-            // stripped from production builds along with everything else DEBUG-gated.
+            validateLayout();
             (globalThis as Record<string, unknown>).__farm = {
                 state: this._state,
                 player: this._player,
                 display,
                 field: this._field,
                 production: this._production,
-                shop: this._shop,
+                shops: this._shops,
                 cash: this._cash,
-                /** Drops the player at a world position without animating there. */
                 teleport: (x: number, z: number) => { this._player.x = x; this._player.z = z; },
             };
         }
     }
 
     update(dt: number): void {
-        // Guard against a very large first frame (tab restore, slow first paint)
-        // driving every timer at once.
         const step = Math.min(dt, 1 / 20);
 
         this._joystick.update();
@@ -148,7 +146,7 @@ export class FarmScene extends Scene {
 
         this._field.update(step);
         this._production.update(step);
-        this._shop.update(step);
+        this._shops.update(step);
         this._cash.update(step);
 
         this._farmer?.update(step);
@@ -157,8 +155,8 @@ export class FarmScene extends Scene {
         this._refreshObjective();
         this._updateIndicators(step);
         this._updateCamera(step);
-        this._updateHireLabels();
-        this._shop.updateBubbles(this.sceneSystem3D);
+        this._updateWorldLabels();
+        this._shops.updateBubbles(this.sceneSystem3D);
 
         this._hud.update(step, this._state, this._production.rackCount, this._production.rackCapacity);
     }
@@ -173,7 +171,6 @@ export class FarmScene extends Scene {
         this._camera.fov = CAMERA.fov;
         this._camera.near = 1;
         this._camera.far = 260;
-        // Position/lookAt only exist once the node is in the tree — addChild first.
         this.addChild(node);
         this._camera.position.set(
             PLAYER.startX + CAMERA.offsetX,
@@ -204,7 +201,6 @@ export class FarmScene extends Scene {
         this.addChild(sunNode);
         this._sun.position.set(PLAYER.startX + 18, 34, PLAYER.startZ + 12);
 
-        // Shadow config isn't schema-exposed — reach the raw THREE.Light.
         const light = this._sun.light;
         light.castShadow = true;
         light.shadow.mapSize.set(2048, 2048);
@@ -213,47 +209,49 @@ export class FarmScene extends Scene {
         cam.top = 34; cam.bottom = -34;
         cam.near = 1; cam.far = 110;
         cam.updateProjectionMatrix();
-        // Slope-scaled bias: without it, the flat ground plane self-shadows in bands.
         light.shadow.bias = -0.0008;
         light.shadow.normalBias = 0.04;
     }
 
     private _buildZones(): void {
         const sys = this.sceneSystem3D;
-        const add = (key: string, cfg: { x: number; z: number; w: number; d: number }, tint?: number) => {
-            const z = new Zone(key, cfg.x, cfg.z, cfg.w, cfg.d, tint);
+        const add = (key: string, cfg: { x: number; z: number; w: number; d: number },
+                     opts: ConstructorParameters<typeof Zone>[5]) => {
+            const z = new Zone(key, cfg.x, cfg.z, cfg.w, cfg.d, opts);
             this._zones[key] = z;
             sys.scene.add(z.marker);
             return z;
         };
 
-        add('startCash', STATIONS.startCash);
-        add('juicerIn', STATIONS.juicerIn);
-        add('rackPickup', STATIONS.rackPickup);
-        add('shopSell', STATIONS.shopSell);
-        add('shopPayout', STATIONS.shopPayout);
-        add('hireFarmer', STATIONS.hireFarmer);
-        add('hireSeller', STATIONS.hireSeller);
+        add('startCash', STATIONS.startCash, { icon: 'money' });
+        add('juicerIn', STATIONS.juicerIn, { icon: 'carrot', showProgress: true });
+        add('rackPickup', STATIONS.rackPickup, { icon: 'bottle', showProgress: true });
+        add('hireFarmer', STATIONS.hireFarmer, { icon: 'hire', showProgress: true });
+        add('hireSeller', STATIONS.hireSeller, { icon: 'hire', showProgress: true });
 
-        // The shop's zones only mean anything once the stall exists.
-        this._zones.shopSell.setEnabled(false);
-        this._zones.shopPayout.setEnabled(false);
+        // One pad per stand: construction site while locked, serving pad once open.
+        for (const stand of this._shops.stands) {
+            const zone = new Zone(
+                `shop${stand.index}`, stand.sellPad.x, stand.sellPad.z, SHOP.padW, SHOP.padD,
+                { icon: 'shop', showProgress: true },
+            );
+            this._shopZones.push(zone);
+            sys.scene.add(zone.marker);
+        }
     }
 
     private _buildSignposts(): void {
         const sys = this.sceneSystem3D;
-        for (const [key, cfg] of [
-            ['farmer', STATIONS.hireFarmer],
-            ['seller', STATIONS.hireSeller],
-        ] as Array<['farmer' | 'seller', typeof STATIONS.hireFarmer]>) {
-            const post = makeSignpost();
-            at(rot(post, 0, Math.PI, 0), cfg.x, 0, cfg.z - cfg.d / 2 - 0.9);
-            post.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-            sys.scene.add(post);
+
+        const post = (x: number, z: number, labelY: number, text: () => string | null) => {
+            const p = makeSignpost();
+            at(rot(p, 0, Math.PI, 0), x, 0, z);
+            p.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+            sys.scene.add(p);
 
             const node = new Node();
             const label = node.addComponent(Label);
-            label.fontSize = 30;
+            label.fontSize = 26;
             label.fontWeight = 800;
             label.color = '#ffffff';
             label.textAlign = 'center';
@@ -261,9 +259,34 @@ export class FarmScene extends Scene {
             node.zIndex = 998;
             this.addChild(node);
 
-            this._hireLabels.push({
-                label, node, key,
-                world: new THREE.Vector3(cfg.x, 3.4, cfg.z - cfg.d / 2 - 0.9),
+            this._worldLabels.push({ node, label, world: new THREE.Vector3(x, labelY, z), text });
+        };
+
+        post(STATIONS.hireFarmer.x, STATIONS.hireFarmer.z - STATIONS.hireFarmer.d / 2 - 0.9, 3.4,
+            () => this._state.farmerHired ? null
+                : `HIRE FARMHAND\n$${Math.max(0, Math.ceil(ECONOMY.farmerCost - this._state.farmerPaid))}`);
+
+        post(STATIONS.hireSeller.x, STATIONS.hireSeller.z - STATIONS.hireSeller.d / 2 - 0.9, 3.4,
+            () => this._state.sellerHired ? null
+                : `HIRE SHOPKEEPER\n$${Math.max(0, Math.ceil(ECONOMY.sellerCost - this._state.sellerPaid))}`);
+
+        // Locked stands advertise their price over the construction site itself.
+        for (const stand of this._shops.stands) {
+            if (stand.cost <= 0) continue;
+            const node = new Node();
+            const label = node.addComponent(Label);
+            label.fontSize = 26;
+            label.fontWeight = 800;
+            label.color = '#ffffff';
+            label.textAlign = 'center';
+            label.dynamic = true;
+            node.zIndex = 998;
+            this.addChild(node);
+            this._worldLabels.push({
+                node, label,
+                world: new THREE.Vector3(stand.sellPad.x, 2.6, stand.sellPad.z),
+                text: () => stand.isOpen || stand.isBuilding ? null
+                    : `NEW JUICE STAND\n$${Math.max(0, Math.ceil(stand.cost - stand.paid))}`,
             });
         }
     }
@@ -274,9 +297,29 @@ export class FarmScene extends Scene {
 
     private _updateZones(dt: number): void {
         const { x, z } = this._player;
+
         for (const key of Object.keys(this._zones)) {
             const zone = this._zones[key];
             zone.occupied = zone.contains(x, z);
+            zone.update(dt);
+        }
+
+        // Fill bars: each pad shows the thing it's actually gating.
+        this._zones.juicerIn.setProgress(
+            Math.min(1, this._state.carrotsQueued / 8));
+        this._zones.rackPickup.setProgress(
+            this._production.rackCapacity > 0 ? this._production.rackCount / this._production.rackCapacity : 0);
+        this._zones.hireFarmer.setProgress(this._state.farmerPaid / ECONOMY.farmerCost);
+        this._zones.hireSeller.setProgress(this._state.sellerPaid / ECONOMY.sellerCost);
+
+        for (let i = 0; i < this._shopZones.length; i++) {
+            const zone = this._shopZones[i];
+            const stand = this._shops.stands[i];
+            zone.occupied = zone.contains(x, z);
+            // While locked the bar is the price; once open it's the current order.
+            zone.setProgress(stand.isOpen
+                ? (stand.frontWants > 0 ? 1 - stand.frontWants / 5 : 0)
+                : stand.unlockProgress);
             zone.update(dt);
         }
     }
@@ -284,68 +327,86 @@ export class FarmScene extends Scene {
     private _handlePlayerActions(dt: number, canTransfer: boolean): void {
         const p = this._player;
 
-        // ── Harvest: standing anywhere on the tilled field pulls carrots ──
-        if (canTransfer && this._field.contains(p.x, p.z) && p.stack.accepts('carrot')) {
+        // ── Harvest into a basket ──
+        if (canTransfer && this._field.contains(p.x, p.z) && p.load.accepts('carrot')) {
             if (this._field.harvestNearest(p.x, p.z, 2.6)) {
-                p.stack.push('carrot');
+                p.load.push('carrot');
                 this._state.totalHarvested++;
             }
         }
 
         // ── Tip carrots into the juicer ──
-        if (canTransfer && this._zones.juicerIn.occupied && p.stack.kind === 'carrot') {
-            if (this._production.acceptCarrot()) p.stack.pop();
+        if (canTransfer && this._zones.juicerIn.occupied && p.load.kind === 'carrot') {
+            if (this._production.acceptCarrot()) p.load.pop();
         }
 
-        // ── Take bottles off the rack ──
-        if (canTransfer && this._zones.rackPickup.occupied && p.stack.accepts('bottle')) {
-            if (this._production.takeBottle()) p.stack.push('bottle');
+        // ── Lift a filled rack off the stand ──
+        if (canTransfer && this._zones.rackPickup.occupied && p.load.canAdopt('bottle')) {
+            const bottles = this._production.takeRack();
+            if (bottles > 0) p.load.adoptFilled('bottle', bottles);
         }
 
-        // ── Sell at the shop ──
-        if (canTransfer && this._zones.shopSell.occupied && p.stack.kind === 'bottle') {
-            if (this._shop.sellBottle()) p.stack.pop();
+        // ── Shop pads: pay one off, or serve at one that's open ──
+        for (let i = 0; i < this._shopZones.length; i++) {
+            const zone = this._shopZones[i];
+            if (!zone.occupied) continue;
+            const stand = this._shops.stands[i];
+
+            if (!stand.isOpen && !stand.isBuilding) {
+                this._payOff(dt, stand.cost, stand.paid, paid => { stand.paid = paid; }, () => {
+                    stand.build();
+                    this._state.toast('New juice stand open!');
+                });
+                continue;
+            }
+            if (canTransfer && p.load.kind === 'bottle') {
+                if (stand.sellBottle()) p.load.pop();
+            }
         }
 
-        // ── Upgrade pads: pay them off by standing there ──
-        this._tickUpgrade(dt, 'hireFarmer', 'farmerPaid', ECONOMY.farmerCost, () => {
-            this._state.farmerHired = true;
-            this._farmer = new FarmerAssistant(this, this._context());
-            this._state.toast('Farmhand hired!');
-            this._zones.hireFarmer.setEnabled(false);
-        });
-        this._tickUpgrade(dt, 'hireSeller', 'sellerPaid', ECONOMY.sellerCost, () => {
-            this._state.sellerHired = true;
-            this._seller = new SellerAssistant(this, this._context());
-            this._state.toast('Shopkeeper hired!');
-            this._zones.hireSeller.setEnabled(false);
-        });
+        // ── Upgrade pads ──
+        if (this._zones.hireFarmer.occupied && !this._state.farmerHired) {
+            this._payOff(dt, ECONOMY.farmerCost, this._state.farmerPaid,
+                paid => { this._state.farmerPaid = paid; }, () => {
+                    this._state.farmerHired = true;
+                    this._farmer = new FarmerAssistant(this, this._context());
+                    this._state.toast('Farmhand hired!');
+                    this._zones.hireFarmer.setEnabled(false);
+                });
+        }
+        if (this._zones.hireSeller.occupied && !this._state.sellerHired) {
+            this._payOff(dt, ECONOMY.sellerCost, this._state.sellerPaid,
+                paid => { this._state.sellerPaid = paid; }, () => {
+                    this._state.sellerHired = true;
+                    this._seller = new SellerAssistant(this, this._context());
+                    this._state.toast('Shopkeeper hired!');
+                    this._zones.hireSeller.setEnabled(false);
+                });
+        }
     }
 
     /**
-     * Drains money into an upgrade while the player stands on its pad — the
-     * classic idle-game payment ramp, rather than a single instant purchase.
+     * Drains money into a purchase while the player stands on its pad — the
+     * classic idle-game payment ramp, rather than a single instant transaction.
      */
-    private _tickUpgrade(
+    private _payOff(
         dt: number,
-        zoneKey: string,
-        progressKey: 'farmerPaid' | 'sellerPaid',
         cost: number,
+        paid: number,
+        store: (paid: number) => void,
         onComplete: () => void,
     ): void {
-        const zone = this._zones[zoneKey];
-        if (!zone.enabled || !zone.occupied) return;
-        if (this._state[progressKey] >= cost) return;
+        if (paid >= cost) return;
 
-        const rate = Math.max(40, cost / 3);   // fully paid in about three seconds
-        const want = Math.min(rate * dt, cost - this._state[progressKey]);
+        const rate = Math.max(60, cost / 3);   // fully paid in about three seconds
+        const want = Math.min(rate * dt, cost - paid);
         const afford = Math.min(want, this._state.money);
         if (afford <= 0) return;
 
         this._state.trySpend(afford);
-        this._state[progressKey] += afford;
-
-        if (this._state[progressKey] >= cost) onComplete();
+        const next = paid + afford;
+        store(next);
+        if (next >= cost) onComplete();
     }
 
     /** Walking near a cash stack picks it up — no zone needed. */
@@ -355,12 +416,12 @@ export class FarmScene extends Scene {
 
         this._state.addMoney(value);
 
-        // The very first pickup is what funds the shop.
+        // The very first pickup is what funds the opening stand.
         if (!this._state.shopBuilt && this._cash.count === 0) {
-            this._shop.build();
+            this._state.shopBuilt = true;
+            this._shops.openFirst();
             this._zones.startCash.setEnabled(false);
-            this._zones.shopSell.setEnabled(true);
-            this._zones.shopPayout.setEnabled(true);
+            this._state.toast('Juice stand open!');
         }
     }
 
@@ -368,7 +429,7 @@ export class FarmScene extends Scene {
         return {
             field: this._field,
             production: this._production,
-            shop: this._shop,
+            shops: this._shops,
             cash: this._cash,
             creditMoney: (amount: number) => this._state.addMoney(amount),
         };
@@ -384,13 +445,16 @@ export class FarmScene extends Scene {
         let next: Objective;
 
         if (!this._state.shopBuilt) next = 'collect-start-cash';
-        else if (p.stack.kind === 'bottle') next = 'sell-bottles';
-        else if (p.stack.kind === 'carrot') next = 'deliver-carrots';
+        else if (p.load.kind === 'bottle') next = 'sell-bottles';
+        else if (p.load.kind === 'carrot') next = 'deliver-carrots';
         else if (this._cash.count > 0) next = 'collect-earnings';
-        else if (this._production.rackCount > 0) next = 'collect-bottles';
+        else if (this._production.readyRackCount > 0) next = 'collect-bottles';
         else {
-            const cost = this._state.nextUpgradeCost();
-            next = cost !== null && this._state.money >= cost ? 'expand' : 'harvest-carrots';
+            const stand = this._shops.nextLocked();
+            const upgrade = this._state.nextUpgradeCost();
+            if (stand && this._state.money >= stand.cost) next = 'unlock-shop';
+            else if (upgrade !== null && this._state.money >= upgrade) next = 'expand';
+            else next = 'harvest-carrots';
         }
 
         this._state.setObjective(next);
@@ -398,17 +462,28 @@ export class FarmScene extends Scene {
 
     /**
      * World point the navigation cues aim at. `y` is where the hanging marker
-     * sits above it — pads want it low, the machinery wants it clear of the roof.
+     * sits above it.
      */
     private _objectiveTarget(): { x: number; z: number; y: number } {
+        const p = this._player;
         const pad = (s: { x: number; z: number }, y = 2.3) => ({ x: s.x, z: s.z, y });
 
         switch (this._state.objective) {
             case 'collect-start-cash': return pad(STATIONS.startCash, 2.1);
             case 'deliver-carrots': return pad(STATIONS.juicerIn, 2.4);
             case 'collect-bottles': return pad(STATIONS.rackPickup, 2.4);
-            case 'sell-bottles': return pad(STATIONS.shopSell, 2.4);
-            case 'collect-earnings': return pad(STATIONS.shopPayout, 2.1);
+            case 'sell-bottles': {
+                const stand = this._shops.nearestOpen(p.x, p.z);
+                return pad(stand ? stand.sellPad : STATIONS.rackPickup, 2.4);
+            }
+            case 'collect-earnings': {
+                const pile = this._cash.nearestPile(p.x, p.z);
+                return pad(pile ?? STATIONS.startCash, 2.1);
+            }
+            case 'unlock-shop': {
+                const stand = this._shops.nextLocked();
+                return pad(stand ? stand.sellPad : STATIONS.startCash, 2.6);
+            }
             case 'expand':
                 return pad(this._state.farmerHired ? STATIONS.hireSeller : STATIONS.hireFarmer, 2.6);
             case 'harvest-carrots':
@@ -416,7 +491,7 @@ export class FarmScene extends Scene {
                 // Aim at a ripe carrot so the arrow points into the field, but keep
                 // the hanging marker on the field centre — chasing the nearest
                 // carrot every frame would make it jitter.
-                const ready = this._field.nearestReady(this._player.x, this._player.z);
+                const ready = this._field.nearestReady(p.x, p.z);
                 const cx = (this._field.minX + this._field.maxX) / 2;
                 const cz = (this._field.minZ + this._field.maxZ) / 2;
                 return { x: ready?.x ?? cx, z: ready?.z ?? cz, y: 2.0 };
@@ -426,9 +501,7 @@ export class FarmScene extends Scene {
 
     /**
      * Drives both navigation cues: the flat arrow painted on the grass just
-     * ahead of the player, and the marker hanging over the destination. Both
-     * switch off once you're basically standing on the objective, so they stop
-     * spinning around underfoot.
+     * ahead of the player, and the marker hanging over the destination.
      */
     private _updateIndicators(dt: number): void {
         this._elapsed += dt;
@@ -445,13 +518,7 @@ export class FarmScene extends Scene {
         if (near) return;
 
         const yaw = Math.atan2(dx, dz);
-
-        // Sits a step in front of the player, in the direction of travel.
-        this._groundArrow.position.set(
-            p.x + Math.sin(yaw) * 1.7,
-            0,
-            p.z + Math.cos(yaw) * 1.7,
-        );
+        this._groundArrow.position.set(p.x + Math.sin(yaw) * 1.7, 0, p.z + Math.cos(yaw) * 1.7);
         this._groundArrow.rotation.y = yaw;
 
         // Deliberately NOT yawed toward the target: the camera's heading is
@@ -484,25 +551,19 @@ export class FarmScene extends Scene {
         this._sun.target.updateMatrixWorld();
     }
 
-    private _updateHireLabels(): void {
-        for (const entry of this._hireLabels) {
-            const hired = entry.key === 'farmer' ? this._state.farmerHired : this._state.sellerHired;
-            const cost = entry.key === 'farmer' ? ECONOMY.farmerCost : ECONOMY.sellerCost;
-            const paid = entry.key === 'farmer' ? this._state.farmerPaid : this._state.sellerPaid;
-
-            if (hired) {
+    private _updateWorldLabels(): void {
+        for (const entry of this._worldLabels) {
+            const text = entry.text();
+            if (text === null) {
                 entry.node.setPosition({ x: -9999, y: -9999 });
                 continue;
             }
-
             const screen = this.sceneSystem3D.worldToDesign(entry.world, display);
             if (!screen) {
                 entry.node.setPosition({ x: -9999, y: -9999 });
                 continue;
             }
-
-            const remaining = Math.max(0, Math.ceil(cost - paid));
-            entry.label.text = `${entry.key === 'farmer' ? 'HIRE FARMHAND' : 'HIRE SHOPKEEPER'}\n$${remaining}`;
+            entry.label.text = text;
             entry.node.setPosition({ x: screen.x, y: screen.y });
         }
     }
