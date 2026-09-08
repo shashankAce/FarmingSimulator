@@ -117,12 +117,28 @@ export function makeConveyor(x0: number, x1: number): { group: THREE.Group; trea
     // Housings over both ends. Bottles are spawned inside the head cover and
     // retired inside the tail one, so the player never sees one blink into
     // existence on bare belt.
+    //
+    // Built as walls with the BELT-FACING side left open, rather than as one
+    // solid block. Each housing is pushed outward from its end of the belt, so
+    // the belt lies along local -`dir` and that is the face that has to be a
+    // mouth: as a closed box, bottles emerged through a wall and were swallowed
+    // by one. A header across the top of the opening keeps it reading as a
+    // doorway instead of a missing panel, and clears the cargo easily — the
+    // gap runs from the wall feet up to `BELT_Y + 0.745`.
+    const wall = 0.16;
     for (const [x, dir] of [[x0, 1], [x1, -1]] as Array<[number, number]>) {
         const cover = new THREE.Group();
-        cover.add(at(box(1.5, 1.15, 1.9, C.METAL_DARK), 0, BELT_Y + 0.72, 0));
+        const midY = BELT_Y + 0.72;
+        // Back, i.e. the outward face, and the two flanks.
+        cover.add(at(box(wall, 1.15, 1.9, C.METAL_DARK), dir * (0.75 - wall / 2), midY, 0));
+        for (const z of [-1, 1]) {
+            cover.add(at(box(1.5, 1.15, wall, C.METAL_DARK), 0, midY, z * (0.95 - wall / 2)));
+        }
+        // Header over the mouth. Its underside is the top of the opening.
+        cover.add(at(box(wall, 0.55, 1.9, C.METAL_DARK), -dir * (0.75 - wall / 2), BELT_Y + 1.02, 0));
+        // Wooden cap. Sits low enough to overlap the wall tops, which is what
+        // closes the roof — there is no separate one.
         cover.add(at(box(1.62, 0.16, 2.0, C.WOOD), 0, BELT_Y + 1.32, 0));
-        // Angled lip on the belt-facing side so it reads as a mouth, not a wall.
-        cover.add(at(rot(box(0.5, 0.5, 1.9, C.METAL), 0, 0, dir * 0.5), dir * 0.72, BELT_Y + 0.32, 0));
         at(cover, x + dir * 0.35, 0, 0);
         g.add(cover);
     }
