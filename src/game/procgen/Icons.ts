@@ -155,9 +155,19 @@ export function makeFlatIcon(kind: IconKind): THREE.Group {
             break;
         }
         case 'bottle': {
-            g.add(flat(roundRect(0.44, 0.56, 0.1), C.JUICE, base));
-            g.add(put(flat(roundRect(0.18, 0.24, 0.05), C.JUICE, base), 0, 0.38));
-            g.add(put(flat(roundRect(0.2, 0.12, 0.04), C.BOTTLE_CAP, base + 2 * LAYER), 0, 0.5));
+            // A side elevation of `makeBottle`, at that model's own proportions
+            // scaled to one unit tall. The old glyph was a plain orange body
+            // with a straight orange neck: it had neither the pale glass collar
+            // nor the taper, so the icon and the thing it stands for did not
+            // look like the same bottle.
+            g.add(put(flat(roundRect(0.42, 0.57, 0.09), C.JUICE, base), 0, -0.214));
+            g.add(put(flat(roundRect(0.44, 0.13, 0.05), C.GLASS, base + LAYER), 0, 0.121));
+            // Tapered neck, drawn where it actually sits: rising out of the
+            // collar, which stays visible as a lip either side of it.
+            g.add(flat(poly([
+                [-0.17, 0.158], [0.17, 0.158], [0.11, 0.406], [-0.11, 0.406],
+            ]), C.GLASS, base + 2 * LAYER));
+            g.add(put(flat(roundRect(0.25, 0.11, 0.04), C.BOTTLE_CAP, base + 3 * LAYER), 0, 0.444));
             break;
         }
         case 'money': {
