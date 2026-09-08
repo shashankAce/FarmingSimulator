@@ -224,9 +224,9 @@ export interface ShopConfig {
 }
 
 export const SHOPS: ReadonlyArray<ShopConfig> = [
-    { side: 'west', along: 9.5, cost: 0 },      // opens with the starting cash
-    { side: 'west', along: 1.0, cost: 450 },
-    { side: 'west', along: -7.5, cost: 1400 },
+    { side: 'west', along: 9.5, cost: 60 },      // opens with the starting cash
+    { side: 'west', along: -1.0, cost: 450 },
+    { side: 'south', along: -15, cost: 1400 },
 ];
 
 /** Stall geometry shared by every entry in `SHOPS`. */
@@ -236,26 +236,25 @@ export const SHOP = {
     /** From the stall origin to the player's serving pad, further inward. */
     sellDistance: 1.0,
     /**
-     * Where dropped crates land, relative to the stall: along the fence, then
-     * inward. A NEGATIVE `dropInward` pushes them back OUT toward the counter,
-     * into the gap between the stall body (which starts 0.65 out) and the
-     * serving pad (whose outer edge is at 0), so they read as stock stacked at
-     * the shop rather than abandoned on the grass.
+     * Where stock crates sit, in stall-local units: along the counter, then
+     * outward, at `counterTop`. ON the counter rather than on the grass beside
+     * it — a stall's stock reads as merchandise when it is behind the counter
+     * and as litter when it is next to it.
+     *
+     * These mirror the counter built by `makeShop()`: its top surface is at
+     * 1.33 and its usable depth is centred on 1.15. `stockAlong` keeps clear of
+     * the display bottles and jug dressing the left-hand end.
      */
-    dropAlong: -2.7,
-    dropInward: -0.32,
-    /**
-     * Hire pad, on the stall's other flank. Deliberately its OWN numbers rather
-     * than the negation of the drop offsets: mirroring them meant tuning where
-     * crates land silently dragged this pad into the counter's collider.
-     */
+    stockAlong: 1.2,
+    stockOut: 1.05,
+    counterTop: 1.33,
+    /** Hire pad, on the stall's other flank. */
     hireAlong: 6.0,
     hireInward: -1,
     /**
      * Takings pad. Money is swept HERE, not at the serving pad, so clearing a
      * blocked counter costs a walk rather than happening for free under the
-     * player's feet. Sits on the crate flank rather than the hire flank, past
-     * where the crates land, since that side is otherwise dead space.
+     * player's feet. Sits on the flank opposite the hire pad.
      */
     collectAlong: 4.0,
     collectInward: -1,
@@ -303,8 +302,8 @@ export interface ShopPlacement {
     yaw: number;
     /** Where the player stands to build, then to serve. */
     sellPad: { x: number; z: number };
-    /** Where carried crates are set down beside the stall. */
-    dropPad: { x: number; z: number };
+    /** Where carried crates are stacked, on the counter top. */
+    stockPad: { x: number; z: number };
     /** Pad for hiring this stall's shopkeeper, on its other flank. */
     hirePad: { x: number; z: number };
     /** Where takings are swept off the counter. */
@@ -353,8 +352,7 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         stall,
         yaw: v.yaw,
         sellPad: off(stall, 0, -SHOP.sellDistance),
-        dropPad: off(stall, SHOP.dropAlong, -SHOP.dropInward),
-        // Opposite flank from the drop, so crates and hiring never share space.
+        stockPad: off(stall, SHOP.stockAlong, SHOP.stockOut),
         hirePad: off(stall, SHOP.hireAlong, -SHOP.hireInward),
         collectPad: off(stall, SHOP.collectAlong, -SHOP.collectInward),
         counter: off(stall, 0, SHOP.counterOffset),
@@ -551,6 +549,12 @@ export const MACHINE = {
     /** Starting seconds per bottle. The speed upgrade overwrites this at runtime
      *  — see `MACHINE_UPGRADE.processTime`. */
     processTime: 0.75,
+    /**
+     * Carrots the hopper holds. Intake closes here, and the juicer pad's fill
+     * bar reads against this same number, so a full bar means a shut intake
+     * rather than a bar that has simply run out of room to grow.
+     */
+    hopperCapacity: 8,
     /** How long a bottle takes to ride the belt end to end. */
     beltTime: 2.4,
     /**

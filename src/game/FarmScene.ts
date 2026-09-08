@@ -27,6 +27,7 @@ import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/A
 
 import { Hud } from './ui/Hud.ts';
 import { Joystick } from './ui/Joystick.ts';
+import { DropButton } from './ui/DropButton.ts';
 
 /** A purchasable pad: hiring staff, or a machine tier. */
 interface UpgradeSlot {
@@ -60,6 +61,7 @@ export class FarmScene extends Scene {
     private _cash!: CashField;
     private _hud!: Hud;
     private _joystick!: Joystick;
+    private _dropButton!: DropButton;
 
     private _camera!: Camera3D;
     private _sun!: DirectionalLight3D;
@@ -126,7 +128,9 @@ export class FarmScene extends Scene {
         this._dropIndicator = makeDropIndicator();
         sys.scene.add(this._groundArrow, this._dropIndicator);
 
-        this._joystick = new Joystick(this);
+        // Built before the stick so the stick can be told to ignore its taps.
+        this._dropButton = new DropButton(this, () => this._dropCarriedLoad());
+        this._joystick = new Joystick(this, (x, y) => this._dropButton.hits(x, y));
         this._hud = new Hud(this, this._state);
 
         this._state.toast('Collect the cash!');
@@ -156,6 +160,8 @@ export class FarmScene extends Scene {
         const step = Math.min(dt, 1 / 20);
 
         this._joystick.update();
+        this._dropButton.update();
+        this._dropButton.setVisible(!this._player.load.isEmpty);
         this._player.updateWithInput(step, this._joystick);
 
         this._transferTimer += step;
@@ -425,7 +431,7 @@ export class FarmScene extends Scene {
 
         // Fill bars: each pad shows the thing it's actually gating.
         this._zones.juicerIn.setProgress(
-            Math.min(1, this._state.carrotsQueued / 8));
+            Math.min(1, this._state.carrotsQueued / MACHINE.hopperCapacity));
         this._zones.rackPickup.setProgress(
             this._production.rackCapacity > 0 ? this._production.rackCount / this._production.rackCapacity : 0);
         for (const slot of this._slots) {
@@ -553,6 +559,23 @@ export class FarmScene extends Scene {
         const next = paid + afford;
         store(next);
         if (next >= cost) onComplete();
+    }
+
+    /**
+     * Puts the carried load on the ground — or rather, gives it up.
+     *
+     * The escape hatch for the one state the game cannot otherwise leave: a
+     * load is one kind at a time, so somebody holding carrots with a full
+     * hopper and a full rack stand can neither tip them nor lift a rack, and
+     * lifting a rack is what clears the jam. Carrots regrow, so losing a
+     * handful costs time rather than progress.
+     */
+    private _dropCarriedLoad(): void {
+        const load = this._player.load;
+        if (load.isEmpty) return;
+        const kind = load.kind;
+        load.clear();
+        this._state.toast(kind === 'carrot' ? 'Carrots dropped' : 'Crate dropped');
     }
 
     /** Walking near a cash stack picks it up — no zone needed. */

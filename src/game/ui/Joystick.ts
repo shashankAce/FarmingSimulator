@@ -25,7 +25,17 @@ export class Joystick {
     private static readonly RADIUS = 96;
     private static readonly KNOB = 46;
 
-    constructor(scene: Scene) {
+    /**
+     * Screen points to leave alone. Because the stick claims pointer-down
+     * globally without hit-testing, an on-screen button would otherwise plant a
+     * stick under the finger that pressed it — the node's own handler fires,
+     * but so does this one.
+     */
+    private _blocked: (x: number, y: number) => boolean = () => false;
+
+    constructor(scene: Scene, blocked?: (x: number, y: number) => boolean) {
+        if (blocked) this._blocked = blocked;
+
         this._base = new Node(0, 0);
         const baseG = this._base.addComponent(Graphics);
         baseG.setLineWidth(6);
@@ -72,6 +82,7 @@ export class Joystick {
 
     private _onDown = (e: PointerInputEvent): void => {
         if (this._active) return;
+        if (this._blocked(e.x, e.y)) return;
         this._active = true;
         this._pointerId = e.pointer.id;
         this._originX = e.x;

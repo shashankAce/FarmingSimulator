@@ -152,16 +152,24 @@ export class Production {
         return !this.hasRoom && !this._hasRackSpace();
     }
 
+    /** True once the hopper is holding everything it can take. */
+    get hopperFull(): boolean {
+        return this._state.carrotsQueued >= MACHINE.hopperCapacity;
+    }
+
     /**
-     * Called when a character tips a carrot into the hopper.
+     * Called when a character tips a carrot into the hopper. Refuses a full one.
      *
-     * ALWAYS accepts. Gating intake on rack space deadlocked the game: a player
-     * holding carrots with a full stand could neither tip them in nor pick up a
-     * rack (a load is one kind at a time), leaving them stuck with nowhere to
-     * put anything. Back-pressure belongs at the bottling step instead, where
-     * carrots simply queue in the hopper until a crate frees up.
+     * A hard cap is only safe because the player can set a load down (see
+     * `DropButton`). Without that, refusing here ends the run: a load is one
+     * kind at a time, so somebody holding carrots with both a full hopper AND a
+     * full rack stand could neither tip them nor lift a rack, and lifting a
+     * rack is the only thing that clears the jam. Belt bottles stop dead at a
+     * full stand, so nothing drains on its own.
      */
     acceptCarrot(): boolean {
+        if (this.hopperFull) return false;
+
         this._state.carrotsQueued++;
         // Bounce the funnel so the drop registers visually.
         this._funnel.scale.set(1.16, 0.86, 1.16);

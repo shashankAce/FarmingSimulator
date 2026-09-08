@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONTENT_SCALE, CRATE_SCALE, RACK_CAPACITY, makeBottleRack } from '../procgen/Containers.ts';
+import { CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, RACK_CAPACITY, makeBottleRack } from '../procgen/Containers.ts';
 import { makeBottle } from '../procgen/Machines.ts';
 
 interface GroundRack {
@@ -9,12 +9,16 @@ interface GroundRack {
 }
 
 /**
- * The racks a seller sets down beside a stall.
+ * The racks a seller stacks on a stall's counter.
  *
- * Stock is dropped, not held: the player walks up, puts the crates down, and
- * serves from them. That's why selling reads from here rather than from the
- * carrier's arms — and why walking away leaves the stock behind rather than
- * taking it with you.
+ * Stock is set down, not held: the player walks up, puts the crates on the
+ * counter, and serves from them. That's why selling reads from here rather than
+ * from the carrier's arms — and why walking away leaves the stock behind rather
+ * than taking it with you.
+ *
+ * The racks pile ON TOP of each other in one spot rather than lining up side by
+ * side; a counter is only so long, and a growing tower reads as stock far more
+ * clearly at a glance than a row that creeps sideways.
  */
 export class ShopStock {
     readonly group = new THREE.Group();
@@ -23,14 +27,26 @@ export class ShopStock {
     private _maxRacks: number;
     private _origin: { x: number; z: number };
     private _yaw: number;
+    /** Counter-top height the stack starts from. */
+    private _baseY: number;
     private _pool: Array<{ group: THREE.Group; slots: THREE.Vector3[] }> = [];
     private _bottlePool: THREE.Group[] = [];
     private _spring: Array<{ g: THREE.Group; t: number }> = [];
 
-    constructor(origin: { x: number; z: number }, yaw: number, maxRacks = 3) {
+    constructor(origin: { x: number; z: number }, yaw: number, maxRacks = 3, baseY = 0) {
         this._origin = origin;
         this._yaw = yaw;
         this._maxRacks = maxRacks;
+        this._baseY = baseY;
+    }
+
+    /**
+     * Height of the nth crate in the stack. `CRATE_PITCH` already allows for the
+     * bottles standing proud of the crate below, so the tower does not intersect
+     * its own contents.
+     */
+    private _stackY(index: number): number {
+        return this._baseY + index * CRATE_PITCH.bottle * CRATE_SCALE;
     }
 
     get crateCount(): number { return this._racks.length; }
@@ -57,14 +73,9 @@ export class ShopStock {
         built.group.visible = true;
         built.group.scale.setScalar(0.01);
 
-        // Racks line up alongside each other, angled with the stall.
-        const index = this._racks.length;
-        const offset = (index - (this._maxRacks - 1) / 2) * (1.45 * CRATE_SCALE);
+        // Stacked in one spot, squared up with the counter under them.
         built.group.position.set(
-            this._origin.x + Math.cos(this._yaw) * offset,
-            0,
-            this._origin.z - Math.sin(this._yaw) * offset,
-        );
+            this._origin.x, this._stackY(this._racks.length), this._origin.z);
         built.group.rotation.y = this._yaw;
         this.group.add(built.group);
 
@@ -116,15 +127,10 @@ export class ShopStock {
         }
     }
 
-    /** Shuffles the remaining racks up after one is emptied. */
+    /** Settles the tower down after the bottom crate is emptied and discarded. */
     private _relayout(): void {
         for (let i = 0; i < this._racks.length; i++) {
-            const offset = (i - (this._maxRacks - 1) / 2) * (1.45 * CRATE_SCALE);
-            this._racks[i].group.position.set(
-                this._origin.x + Math.cos(this._yaw) * offset,
-                0,
-                this._origin.z - Math.sin(this._yaw) * offset,
-            );
+            this._racks[i].group.position.y = this._stackY(i);
         }
     }
 }

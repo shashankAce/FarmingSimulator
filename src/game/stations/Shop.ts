@@ -78,7 +78,7 @@ export class ShopStand {
         this._stall.visible = false;
         this.group.add(this._stall);
 
-        this.stock = new ShopStock(this.place.dropPad, yaw, SHOP.stockCrates);
+        this.stock = new ShopStock(this.place.stockPad, yaw, SHOP.stockCrates, SHOP.counterTop);
         this.group.add(this.stock.group);
 
         this.group.traverse(o => {
