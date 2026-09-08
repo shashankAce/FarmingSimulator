@@ -586,14 +586,41 @@ export const PLAYER = {
     speed: 9.5,
     turnSpeed: 14,
     radius: 0.7,
-    /** Crates stackable in the arms at once — NOT a count of individual items. */
-    capacity: 2,
 };
 
 export const ASSISTANT = {
     speed: 6.4,
-    /** Crates, not items — assistants carry a lighter load than the player. */
-    capacity: 2,
+};
+
+/**
+ * ─── CARRYING CAPACITY ───────────────────────────────────────────────────────
+ * How much a character can hold, in one block, because it is TWO numbers
+ * multiplied and tuning one without seeing the other is how you end up
+ * surprised: `crates` is how many baskets or racks stack in the arms, and the
+ * grid below is how many items fit inside one of them.
+ *
+ *     carrots per trip = playerCrates * basket.cols * basket.rows
+ *     bottles per trip = playerCrates * rack.cols   * rack.rows
+ *
+ * Both halves have a visible side effect, so neither is a free dial:
+ *
+ * - `crates` grows the stack held out in front. It is already scaled down
+ *   (`Containers.CRATE_SCALE`) because a full-size stack hides the character
+ *   from this camera, so much past 3 or 4 is a tower with a bunny under it.
+ * - the grids BUILD the crate mesh — a rack draws one divider per column — so
+ *   widening one packs the same-sized crate tighter rather than enlarging it.
+ *
+ * `rack` reaches beyond the arms: it is also the unit the production stand and
+ * every shop's stock are measured in, so raising it moves the economy too.
+ */
+export const CARRY = {
+    /** Crates in the arms. Assistants carry a lighter load than the player. */
+    playerCrates: 6,
+    assistantCrates: 2,
+    /** Carrots in a basket. */
+    basket: { cols: 3, rows: 2 },
+    /** Bottles in a rack. */
+    rack: { cols: 3, rows: 2 },
 };
 
 export const ECONOMY = {

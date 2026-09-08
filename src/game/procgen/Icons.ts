@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FONT_FAMILY } from '../Config.ts';
+import { CAMERA, FONT_FAMILY } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { FARMER_COLORS, SELLER_COLORS, type CharacterColors } from './Character.ts';
 
@@ -358,4 +358,66 @@ export class FlatNumber {
         uv.setXY(3, u1, 0);
         uv.needsUpdate = true;
     }
+}
+
+/**
+ * A word standing UP in the world, floating over whatever it belongs to.
+ *
+ * Painted into an offscreen canvas for the same reason the digit atlas is —
+ * there is no font parser here, so extruded letterforms are not available (see
+ * `FlatNumber`). Depth instead comes the way it does everywhere else in this
+ * game: a darker copy offset behind the face, which is the same trick the
+ * navigation arrows use to fake a cartoon outline without a shader.
+ *
+ * Tilted to meet the camera head-on rather than left vertical, and unlit. A
+ * notice that dims as the sun moves off it is a notice you stop noticing.
+ */
+export function makeWorldText(text: string, height: number, color: number): THREE.Group {
+    const PX = 96;
+    const pad = Math.round(PX * 0.2);
+
+    // Measured on a scratch context first: the canvas has to be sized to the
+    // word before the word can be drawn into it.
+    const font = `${PX}px "${FONT_FAMILY}"`;
+    const scratch = document.createElement('canvas').getContext('2d')!;
+    scratch.font = font;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(scratch.measureText(text).width) + pad * 2;
+    canvas.height = PX + pad * 2;
+
+    const ctx = canvas.getContext('2d')!;
+    // White, so each copy's material colour tints it — one texture, two shades.
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font;
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+
+    // Upright: no rotateX, unlike every ground decal in this file.
+    const geo = new THREE.PlaneGeometry(height * (canvas.width / canvas.height), height);
+    const panel = (tint: number, z: number): THREE.Mesh => {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+            map: tex, transparent: true, alphaTest: 0.35, color: tint,
+        }));
+        m.position.set(0, 0, z);
+        m.castShadow = false;
+        m.receiveShadow = false;
+        return m;
+    };
+
+    const tilt = new THREE.Group();
+    tilt.add(panel(0x000000, -0.04), panel(color, 0));
+    tilt.children[0].position.y = -height * 0.06;
+    // Square to the camera. Derived from the rig rather than guessed, so the
+    // word stays legible if the camera is ever re-pitched.
+    tilt.rotation.x = -Math.atan2(CAMERA.offsetY, CAMERA.offsetZ);
+
+    const holder = new THREE.Group();
+    holder.add(tilt);
+    return holder;
 }

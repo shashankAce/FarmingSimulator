@@ -178,6 +178,13 @@ export class ShopStand {
     /** Cash on the counter waiting to be swept at the takings pad. */
     get hasTakings(): boolean { return this._till.length > 0; }
 
+    /**
+     * Every slot physically occupied. Distinct from `!tillHasRoom`, which also
+     * reserves space for orders still in flight — that one gates sales, this
+     * one is what the player can actually see on the pad.
+     */
+    get tillFull(): boolean { return this._till.length >= this._tillSlots.length; }
+
     /** Bottles left to sell here. */
     get hasStock(): boolean { return this.stock.bottles > 0; }
 

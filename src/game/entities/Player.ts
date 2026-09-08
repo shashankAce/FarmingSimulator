@@ -1,5 +1,5 @@
 import { Scene } from 'noonengine';
-import { PLAYER } from '../Config.ts';
+import { CARRY, PLAYER } from '../Config.ts';
 import { PLAYER_COLORS, makeShovel } from '../procgen/Character.ts';
 import { at, rot, scl } from '../procgen/Primitives.ts';
 import { Actor } from './Actor.ts';
@@ -15,7 +15,7 @@ export class Player extends Actor {
             x: PLAYER.startX,
             z: PLAYER.startZ,
             speed: PLAYER.speed,
-            capacity: PLAYER.capacity,
+            capacity: CARRY.playerCrates,
         });
 
         // The shovel rides on the right arm's pivot, so it swings with the walk

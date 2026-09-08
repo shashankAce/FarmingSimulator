@@ -337,7 +337,7 @@ export class FarmScene extends Scene {
                 // Icon only. The cash physically stacked on this pad already
                 // says how much is waiting and how full it is, so a fill bar
                 // and a total would be the same fact told three times.
-                { icon: 'money', yaw: stand.place.padYaw },
+                { icon: 'money', yaw: stand.place.padYaw, notice: 'MAXED' },
             );
             till.setEnabled(false);
             this._collectZones.push(till);
@@ -486,6 +486,9 @@ export class FarmScene extends Scene {
             if (till.enabled !== stand.isOpen) till.setEnabled(stand.isOpen);
             if (!stand.isOpen) continue;
             till.occupied = till.contains(x, z);
+            // Nowhere left to pay out: the stall has stopped selling until this
+            // is cleared, which is worth saying out loud.
+            till.setNotice(stand.tillFull);
             till.update(dt);
         }
     }

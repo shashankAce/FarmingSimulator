@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { C } from '../Palette.ts';
 import { at, plane, rot } from '../procgen/Primitives.ts';
-import { FlatNumber, makeFlatIcon, type IconKind } from '../procgen/Icons.ts';
+import { FlatNumber, makeFlatIcon, makeWorldText, type IconKind } from '../procgen/Icons.ts';
 
 /** Colour the outline and fill snap to while somebody is standing on the pad. */
 const HIGHLIGHT = 0xffd83d;
@@ -36,6 +36,20 @@ const AMOUNT_Z = 0.26;
  * fraction of pad depth. Override per pad with `ZoneOptions.iconZ`.
  */
 const ICON_LIFT = 0.17;
+/**
+ * A notice shown over the pad — "MAXED" and the like. Red rather than the
+ * pad's own yellow highlight: yellow on a pale marking over grass is exactly
+ * the contrast this needs to not have.
+ */
+const NOTICE = 0xe4574f;
+/**
+ * How high the notice floats, and how far it bobs. Well clear of a full pile of
+ * takings, whose top layer reaches roughly 0.32 — a notice buried under the
+ * cash it is complaining about would be no use at all.
+ */
+const NOTICE_Y = 1.5;
+const NOTICE_BOB = 0.12;
+
 /** Money readout, dark on a pale pad and pale on a solid one. */
 const AMOUNT_ON_LIGHT = 0x2f2418;
 const AMOUNT_ON_SOLID = 0xf4f7e8;
@@ -65,6 +79,8 @@ export interface ZoneOptions {
      */
     iconX?: number;
     iconZ?: number;
+    /** Word floated over the pad, shown on demand with `setNotice`. */
+    notice?: string;
     /**
      * Turns the whole marker — outline, fill, progress, icon and readout — as
      * one piece, the same `rot(g, 0, yaw, 0)` the stall itself gets, so a pad
@@ -106,6 +122,8 @@ export class Zone {
     private _progress = 0;
     private _icon: THREE.Group | null = null;
     private _amount: FlatNumber | null = null;
+    private _notice: THREE.Group | null = null;
+    private _noticeT = 0;
     private _amountZ = 0;
     private _solid = false;
     private _locked = false;
@@ -217,6 +235,17 @@ export class Zone {
         const yaw = opts.yaw ?? 0;
         this._cos = Math.cos(yaw);
         this._sin = Math.sin(yaw);
+
+        if (opts.notice) {
+            const notice = makeWorldText(opts.notice, Math.min(w, d) * 0.4, NOTICE);
+            // Counter-rotated out of the pad's own turn. Everything else on a
+            // pad squares up with the counter it serves; a word squares up with
+            // the reader.
+            notice.rotation.y = -yaw;
+            notice.visible = false;
+            this._notice = notice;
+            g.add(at(notice, 0, NOTICE_Y, 0));
+        }
         // Rotate BEFORE positioning, and not a moment earlier: the readout
         // above measures the icon's bounds in this group's local frame, which a
         // rotation already applied would have thrown off.
@@ -267,6 +296,11 @@ export class Zone {
         if (this._amount) this._amount.group.position.z = on ? this._amountZ : 0;
     }
 
+    /** Shows or hides the word this pad was built with. */
+    setNotice(on: boolean): void {
+        if (this._notice) this._notice.visible = on;
+    }
+
     /** Greys the pad out and stops it lighting up. See `LOCKED`. */
     setLocked(on: boolean): void {
         this._locked = on;
@@ -304,6 +338,13 @@ export class Zone {
         this._fillMat.opacity = this._solid
             ? 0.4 + this._glow * 0.16
             : 0.22 + this._glow * 0.3;
+
+        if (this._notice?.visible) {
+            // Bobbing, like the destination marker — a floating sign that hangs
+            // dead still reads as part of the scenery.
+            this._noticeT += dt;
+            this._notice.position.y = NOTICE_Y + Math.sin(this._noticeT * 3.2) * NOTICE_BOB;
+        }
 
         if (this._progressBar) {
             this._progressBar.visible = this._progress > 0.001;

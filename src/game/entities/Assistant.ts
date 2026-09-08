@@ -1,5 +1,5 @@
 import { Scene } from 'noonengine';
-import { ASSISTANT, MACHINE, STATIONS } from '../Config.ts';
+import { ASSISTANT, CARRY, MACHINE, STATIONS } from '../Config.ts';
 import { FARMER_COLORS, SELLER_COLORS } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { CarrotField } from '../world/CarrotField.ts';
@@ -35,7 +35,7 @@ export class Assistant extends Actor {
     private _timer = 0;
 
     constructor(scene: Scene, ctx: FarmContext, colors: typeof FARMER_COLORS, x: number, z: number) {
-        super(scene, colors, { x, z, speed: ASSISTANT.speed, capacity: ASSISTANT.capacity });
+        super(scene, colors, { x, z, speed: ASSISTANT.speed, capacity: CARRY.assistantCrates });
         this._ctx = ctx;
     }
 

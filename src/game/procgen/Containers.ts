@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CARRY } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, box, rot } from './Primitives.ts';
 
@@ -27,12 +28,14 @@ export const CRATE_PITCH = { bottle: 0.86, carrot: 0.78 };
 /** World scale of a loose bottle, matched to one sitting in a crate. */
 export const LOOSE_BOTTLE_SCALE = CRATE_SCALE * CONTENT_SCALE.bottle;
 
-export const RACK_COLS = 3;
-export const RACK_ROWS = 2;
+// Sourced from `CARRY` so the whole of a character's capacity is tunable from
+// one place. These stay exported because they also shape the crate meshes below.
+export const RACK_COLS = CARRY.rack.cols;
+export const RACK_ROWS = CARRY.rack.rows;
 export const RACK_CAPACITY = RACK_COLS * RACK_ROWS;
 
-export const BASKET_COLS = 3;
-export const BASKET_ROWS = 2;
+export const BASKET_COLS = CARRY.basket.cols;
+export const BASKET_ROWS = CARRY.basket.rows;
 export const BASKET_CAPACITY = BASKET_COLS * BASKET_ROWS;
 
 const W = 1.25;
