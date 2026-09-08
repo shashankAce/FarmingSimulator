@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { Scene } from 'noonengine';
-import { ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
+import { GRAPHICS, ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
 import { CASH_STACK, makeCashStack } from '../procgen/Machines.ts';
 import { ShopStock } from './ShopStock.ts';
 import { obstacles } from '../world/Obstacles.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 import type { CarryLoad } from '../world/CarryLoad.ts';
 import { at, rot } from '../procgen/Primitives.ts';
 import { makeBunting, makeConstructionFrame, makeShop } from '../procgen/Structures.ts';
@@ -90,6 +91,14 @@ export class ShopStand {
             if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; }
         });
 
+        // Each of these is shown, hidden, raised and scaled as the stall is
+        // built, so the GROUPS have to survive — but their insides never move
+        // relative to them, which is exactly what an in-place merge collapses.
+        if (GRAPHICS.mergeStatic) {
+            mergeStaticInPlace(this._frame);
+            mergeStaticInPlace(this._stall);
+        }
+
         this.queue = new CustomerQueue(scene, this._queueLayout(), b => this._payOut(b), 0x5EED + index * 977);
         this.group.add(this.queue.group);
     }
@@ -131,6 +140,8 @@ export class ShopStand {
         this._bunting = makeBunting(12, 14);
         const b = this.place.bunting;
         at(rot(this._bunting, 0, b.yaw, 0), b.x, 0, b.z);
+        // A row of little flags, hung once and left: one mesh, not a dozen.
+        if (GRAPHICS.mergeStatic) mergeStaticInPlace(this._bunting);
         this.group.add(this._bunting);
 
         this.queue.setActive(true);

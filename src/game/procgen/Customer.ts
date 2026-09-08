@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GRAPHICS } from '../Config.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 import { at, blob, box, cone, pickOf, rangeOf, rot, scl, sphere } from './Primitives.ts';
 
 /**
@@ -73,6 +75,16 @@ export function makeCustomer(rng: () => number): CustomerRig {
     // A little size variety so the queue isn't a row of clones.
     scl(root, rangeOf(rng, 1.12, 1.34));
     root.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = false; } });
+
+    // Same treatment as the farmers: the body is animated as a whole and the
+    // flippers on their own, so those three groups survive and everything
+    // inside the body collapses to a mesh per material. There is one of these
+    // per queue slot per stall, so it multiplies.
+    if (GRAPHICS.mergeStatic) {
+        mergeStaticInPlace(body, { skip: [flipperL, flipperR] });
+        mergeStaticInPlace(flipperL);
+        mergeStaticInPlace(flipperR);
+    }
 
     return { root, body, flipperL, flipperR, phase: rng() * Math.PI * 2 };
 }

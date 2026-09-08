@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { GRAPHICS } from '../Config.ts';
 import { C } from '../Palette.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 import { at, box, cyl, group, rot, scl, sphere } from './Primitives.ts';
 
 /**
@@ -313,6 +315,11 @@ export function makeCashStack(): THREE.Group {
         at(box(0.13, 0.21, 0.44, C.MONEY_PAPER), 0, 0.105, 0),
     );
     g.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; } });
+    // Notes never move within their own stack — only the stack bobs — so this
+    // is one mesh per material rather than one per note. Stacks are pooled, so
+    // the merge is paid once and reused for the life of the run.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
+
     return g;
 }
 

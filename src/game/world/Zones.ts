@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { C } from '../Palette.ts';
 import { at, plane, rot } from '../procgen/Primitives.ts';
 import { FlatNumber, makeFlatIcon, makeWorldText, type IconKind } from '../procgen/Icons.ts';
@@ -124,7 +125,8 @@ export class Zone {
 
     private _fill: THREE.Mesh;
     private _fillMat: THREE.MeshLambertMaterial;
-    private _edgeMats: THREE.MeshBasicMaterial[] = [];
+    /** One material for the whole border — every side shows the same colour. */
+    private _edgeMat!: THREE.MeshBasicMaterial;
     private _progressBar: THREE.Mesh | null = null;
     private _progressSpan = 0;
     private _progress = 0;
@@ -176,13 +178,34 @@ export class Zone {
             [t, d + t, w / 2, 0],
             [t, d + t, -w / 2, 0],
         ];
-        for (const [ew, ed, ex, ez] of edges) {
-            const mat = new THREE.MeshBasicMaterial({ color: IDLE });
-            const bar = new THREE.Mesh(new THREE.BoxGeometry(ew, 0.07, ed), mat);
-            bar.castShadow = false;
-            bar.receiveShadow = false;
-            this._edgeMats.push(mat);
-            g.add(at(bar, ex, 0.05, ez));
+        // One mesh for the whole border, not one per side.
+        //
+        // The four sides are always given the SAME colour (see `update`), so as
+        // four meshes with four materials they were four draw calls and four
+        // geometries doing one job — times every pad in the yard, which is the
+        // largest single count of anything left in the scene.
+        //
+        // Merged by translating each side's box into place and concatenating,
+        // which is the same trick `world/MergeStatic.ts` plays on the scenery.
+        this._edgeMat = new THREE.MeshBasicMaterial({ color: IDLE });
+        const sides = edges.map(([ew, ed, ex, ez]) =>
+            new THREE.BoxGeometry(ew, 0.07, ed).translate(ex, 0.05, ez));
+        const border = mergeGeometries(sides);
+        if (border) {
+            for (const side of sides) side.dispose();
+            const bars = new THREE.Mesh(border, this._edgeMat);
+            bars.castShadow = false;
+            bars.receiveShadow = false;
+            g.add(bars);
+        } else {
+            // Merge refused (it logs why): four meshes again, but still sharing
+            // the one material, so the colour animation is unchanged either way.
+            for (const side of sides) {
+                const bar = new THREE.Mesh(side, this._edgeMat);
+                bar.castShadow = false;
+                bar.receiveShadow = false;
+                g.add(bar);
+            }
         }
 
         // The fill sweeps the whole pad rather than sitting in a thin bar on its
@@ -267,6 +290,9 @@ export class Zone {
         // rotation already applied would have thrown off.
         at(rot(g, 0, yaw, 0), x, 0, z);
         this.marker = g;
+        // Named for the debug census: pads are added straight to the scene, so
+        // without this a dozen of them show up as a dozen anonymous "Group"s.
+        this.marker.name = `zone:${name}`;
     }
 
     /**
@@ -360,7 +386,7 @@ export class Zone {
 
         const color = C_SCRATCH.copy(this._locked ? C_LOCKED : C_IDLE)
             .lerp(C_HIGHLIGHT, this._glow);
-        for (const m of this._edgeMats) m.color.copy(color);
+        this._edgeMat.color.copy(color);
         // The outline still lights up on a solid pad; only the floor stays dark,
         // otherwise an open shop gives no feedback for standing on it.
         this._fillMat.color.copy(this._solid ? C_SOLID : color);

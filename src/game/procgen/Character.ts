@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { CHARACTER } from '../Config.ts';
+import { CHARACTER, GRAPHICS } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, box, cyl, group, rot, scl, sphere } from './Primitives.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 
 /**
  * The procedural bunny farmer from the reference art, plus a tiny animation rig.
@@ -222,6 +223,25 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     root.add(backAnchor);
 
     root.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = false; } });
+
+    // Collapse each animated part's INSIDE. Every group here is rotated by
+    // `animateCharacter`, so the groups themselves have to survive — but
+    // nothing within one moves relative to it, which is exactly the case for an
+    // in-place merge. A head is nine meshes of skull, snout, nose, teeth, eyes
+    // and cheeks that only ever move together; merged by material it is four.
+    //
+    // The skips are the nested parts that DO move on their own. Get one wrong
+    // and it stops animating with no error, which is why they are listed
+    // explicitly rather than inferred.
+    //
+    // Worth it because characters are the most numerous thing left in the
+    // scene: a player, a farmhand per shop and a shopkeeper per shop, at two
+    // dozen draw calls each.
+    if (GRAPHICS.mergeStatic) {
+        mergeStaticInPlace(body, { skip: [head, armL, armR, legL, legR] });
+        mergeStaticInPlace(head, { skip: [earL, earR] });
+        for (const part of [armL, armR, legL, legR, earL, earR]) mergeStaticInPlace(part);
+    }
 
     // Scaled at the root, so every part, the tool on the arm and the carry
     // anchor all move together. Anything parented in later that must NOT grow
@@ -475,6 +495,10 @@ export function animateCharacter(rig: CharacterRig, dt: number, speed01: number,
  */
 export function giveKukri(rig: CharacterRig): void {
     const kukri = at(rot(scl(makeKukri(), 0.9), 0, Math.PI, 0), 0.04, -0.78, 0.06);
+    // Eleven pieces of handle, bolster and blade that never move apart: three
+    // meshes, one per material. Added AFTER the rig's own merge, so the arm it
+    // hangs on has already been collapsed and this is not swept into it.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(kukri);
     rig.armR.add(kukri);
     rig.tool = kukri;
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MACHINE, STATIONS } from '../Config.ts';
+import { GRAPHICS, MACHINE, STATIONS } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, cyl } from '../procgen/Primitives.ts';
 import { BELT_Y, makeBeltJoin, makeBottle, makeConveyor, makeJuicer } from '../procgen/Machines.ts';
@@ -8,6 +8,7 @@ import {
     makeBottleRack, makeRackStandFrame,
 } from '../procgen/Containers.ts';
 import type { GameState } from '../GameState.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 
 interface BeltBottle {
     obj: THREE.Group;
@@ -109,6 +110,21 @@ export class Production {
         this.group.traverse(o => {
             if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; }
         });
+
+        // The shell — juicer body, belt frame, shroud, trestle — is built once
+        // and never moves, so it collapses into a mesh per material. What is
+        // skipped is everything the update loop still needs to reach: the
+        // flywheel and funnel it animates, the pour it shows and hides, and the
+        // treads it scrolls. Merging one of those away breaks it silently, so
+        // the list is the whole safety of this call.
+        //
+        // Racks and bottles arrive later and are not affected: this only
+        // collapses what exists right now.
+        if (GRAPHICS.mergeStatic) {
+            mergeStaticInPlace(this.group, {
+                skip: [this._wheel, this._funnel, this._pour, ...this._treads],
+            });
+        }
     }
 
     /** Total bottle capacity of the stand, for the HUD readout. */

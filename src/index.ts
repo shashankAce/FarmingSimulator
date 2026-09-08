@@ -1,7 +1,7 @@
 import { DEBUG, GameEngine, InspectorOverlay, RendererType, ResolutionPolicy, assetCache, createPlatform } from 'noonengine';
 import { ThreeSceneSystem } from 'noonengine/3d';
 
-import { FONT_FAMILY, FONT_SRC, GAME_HEIGHT, GAME_WIDTH } from './game/Config.ts';
+import { FONT_FAMILY, FONT_SRC, GAME_HEIGHT, GAME_WIDTH, GRAPHICS } from './game/Config.ts';
 import { FarmScene } from './game/FarmScene.ts';
 
 /**
@@ -24,6 +24,10 @@ const engine = new GameEngine({
     enable3D: true,
     sceneSystem3D: ThreeSceneSystem,
     showStats: DEBUG,
+    // Capped rather than left at the device's own ratio — see
+    // `GRAPHICS.pixelRatio`, which explains why this one number dominates
+    // frame time on a phone.
+    pixelRatio: GRAPHICS.pixelRatio,
 });
 
 if (DEBUG) {

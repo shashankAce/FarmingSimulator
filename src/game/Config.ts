@@ -646,6 +646,22 @@ export const GRAPHICS = {
     /** Resolution of the sun's shadow map, when shadows are on. */
     shadowMapSize: 2048,
     /**
+     * Cap on the framebuffer's pixel density, passed to `GameEngine`.
+     *
+     * THE mobile setting. Left alone the engine renders at the device's own
+     * `devicePixelRatio`, which on a phone is 2.5 to 3.5 — so the game draws
+     * 6 to 12 TIMES the fragments of a 1:1 render, for detail nobody can see
+     * on a 6-inch screen at arm's length. Every per-pixel cost in the frame
+     * scales with this: the ground, the grass, overdraw where scenery overlaps,
+     * the lot. It is the first thing to try when a phone is slow and a desktop
+     * is not, and unlike geometry work it costs nothing to change.
+     *
+     * 1.5 keeps text and edges from looking soft while cutting the fragment
+     * work to roughly a fifth of an uncapped 3.5 phone. 1 is cheaper again and
+     * visibly softer; 2 is the most a mobile GPU of this class is worth giving.
+     */
+    pixelRatio: 1.5,
+    /**
      * Merge the static scenery into a few meshes at startup — see
      * `world/MergeStatic.ts`.
      *
@@ -655,14 +671,25 @@ export const GRAPHICS = {
      */
     mergeStatic: true,
     /**
-     * Size of the XZ tile the merge buckets by, in world units.
+     * Size of the XZ tile the merge buckets by, in world units. `Infinity`
+     * turns tiling off — one call per material, full stop.
      *
-     * The trade-off, in one number: one draw call per material per VISIBLE
-     * tile. Bigger tiles collapse more into each call but drop more
-     * off-screen geometry into a bucket that is on screen, and so gets drawn.
-     * Around the width of what the camera can see is the sweet spot.
+     * The trade-off is one draw call per material per VISIBLE tile: tiling buys
+     * culling and pays for it in calls. It was worth it when the village was
+     * 135 x 126 and the camera saw a fifth of it. It stopped being worth it
+     * once the scatter was cut back to what the camera can reach — the world is
+     * now 110 x 71 and the view covers 64 x 33 of it, so almost every tile is
+     * on screen almost always.
+     *
+     * The census settled it. Tiled at 24, the merged village came to 202 meshes
+     * over 29 materials — seven copies of each material, most of them visible.
+     * Untiled it is 29 meshes, always drawn, carrying 29k triangles. At the
+     * 178 triangles per call this scene averages, 29 calls of everything beats
+     * 80 calls of two thirds of it, and by a wide margin.
+     *
+     * Grow the world again and this earns its keep again.
      */
-    mergeTile: 24,
+    mergeTile: Infinity,
 };
 
 export const PLAYER = {
@@ -1017,7 +1044,7 @@ export function validateLayout(): void {
     const half = GROUND_SIZE / 2;
     if (vis.minX < -half || vis.maxX > half || vis.minZ < -half || vis.maxZ > half) {
         warn('visibleBounds() reaches past the ground plane — raise GROUND_SIZE, '
-            + 'or lower PAN.maxRadius / the CAMERA offsets.');
+            + 'or pull the CAMERA offsets in.');
     }
 
     // The production line moves as one, so check both of its ends.

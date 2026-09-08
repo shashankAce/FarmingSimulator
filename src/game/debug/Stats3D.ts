@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEBUG, PerfStats } from 'noonengine';
+import { DEBUG, PerfStats, display } from 'noonengine';
 
 /**
  * The slice of a renderer this panel reads.
@@ -206,6 +206,12 @@ export class Stats3D {
             `mem  ${info.memory.geometries} geom  ${info.memory.textures} tex  ${info.programs?.length ?? 0} prog`,
             `tree ${short(objects)} objects  ${short(meshes)} meshes`,
             `2D   ${String(PerfStats.drawCalls).padStart(3)} calls`,
+            // The framebuffer it is actually drawing, which is the one number
+            // that decides every per-pixel cost on a phone. If this reads far
+            // more pixels than the screen has, `GRAPHICS.pixelRatio` is not
+            // being applied.
+            `res  ${display.canvas.width}x${display.canvas.height} @${display.dpr.toFixed(2)}`
+                + `  ${short(display.canvas.width * display.canvas.height)}px`,
             `cpu  ${cpuMs.toFixed(2)}ms of ${avgMs.toFixed(1)}ms  (rest: render + gpu)`,
         ];
         // Three to a row, widest first, so the panel stays a fixed shape.

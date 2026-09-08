@@ -43,13 +43,18 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  * requires every input to have the same attributes and the same indexed-ness,
  * and returns null (after logging) if they do not.
  */
-function bucketKey(mesh: THREE.Mesh, mat: THREE.Material, tile: number): string {
-    const p = mesh.matrixWorld;
-    const tx = Math.floor(p.elements[12] / tile);
-    const tz = Math.floor(p.elements[14] / tile);
+function bucketKeyAt(
+    mesh: THREE.Mesh, mat: THREE.Material, tile: number, at: THREE.Matrix4,
+): string {
+    const tx = Math.floor(at.elements[12] / tile);
+    const tz = Math.floor(at.elements[14] / tile);
     const attrs = Object.keys(mesh.geometry.attributes).sort().join(',');
     const indexed = mesh.geometry.index ? 'i' : 'n';
     return `${mat.uuid}|${mesh.castShadow ? 1 : 0}${mesh.receiveShadow ? 1 : 0}|${tx},${tz}|${attrs}|${indexed}`;
+}
+
+function bucketKey(mesh: THREE.Mesh, mat: THREE.Material, tile: number): string {
+    return bucketKeyAt(mesh, mat, tile, mesh.matrixWorld);
 }
 
 /** Re-parents `obj` into `out` with its world transform baked into it. */
@@ -57,6 +62,91 @@ function carryOver(obj: THREE.Object3D, out: THREE.Group): void {
     obj.matrix.copy(obj.matrixWorld);
     obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
     out.add(obj);
+}
+
+/**
+ * Merges a group's CURRENT contents in place, leaving the group itself alone.
+ *
+ * The variant the stations need. `mergeStatic` returns a replacement group,
+ * which is fine for scenery nobody keeps a handle on — but a station's group
+ * receives racks, crates and customers at runtime, and a stall's group is shown,
+ * hidden and raised as it is built. Swapping either for a merged copy would
+ * send every later child into an orphan, or lose the animation's handle.
+ *
+ * So this collapses what is in the group AT THE MOMENT IT IS CALLED — the
+ * static shell, built in the constructor — and parents the result to the same
+ * group. Everything added afterwards is untouched, and the group keeps its
+ * identity, transform and visibility.
+ *
+ * Geometry is baked into the group's LOCAL space, not the world's, so the group
+ * can still be moved, rotated or raised afterwards and its merged shell moves
+ * with it.
+ *
+ * `skip` names objects that must survive as themselves — anything animated,
+ * toggled, or held in a field. They and their descendants are left exactly
+ * where they are. Getting this list wrong is the one way to break a station:
+ * merge away the belt's treads and they stop scrolling, with no error.
+ *
+ * `tile` defaults to no tiling at all: a station is one small object, always
+ * near the player when it matters, so splitting it for culling buys nothing.
+ */
+export function mergeStaticInPlace(
+    group: THREE.Object3D,
+    opts: { tile?: number; skip?: Iterable<THREE.Object3D> } = {},
+): void {
+    const tile = opts.tile ?? Infinity;
+    const skip = new Set<THREE.Object3D>(opts.skip ?? []);
+    group.updateMatrixWorld(true);
+    const toLocal = new THREE.Matrix4().copy(group.matrixWorld).invert();
+
+    const buckets = new Map<string, THREE.Mesh[]>();
+    const guard = new THREE.Matrix4();
+
+    group.traverse(obj => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // Skipped, or inside something skipped.
+        for (let a: THREE.Object3D | null = mesh; a; a = a.parent) {
+            if (skip.has(a)) return;
+            if (a === group) break;
+        }
+        if (Array.isArray(mesh.material) || !mesh.geometry
+            || (mesh as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) return;
+
+        guard.multiplyMatrices(toLocal, mesh.matrixWorld);
+        const key = bucketKeyAt(mesh, mesh.material as THREE.Material, tile, guard);
+        const list = buckets.get(key);
+        if (list) list.push(mesh);
+        else buckets.set(key, [mesh]);
+    });
+
+    for (const bucket of buckets.values()) {
+        if (bucket.length === 1) continue;
+        const first = bucket[0];
+        const baked = bucket.map(m => m.geometry.clone()
+            .applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, m.matrixWorld)));
+        const merged = mergeGeometries(baked);
+        for (const g of baked) g.dispose();
+        if (!merged) continue;
+
+        for (const m of bucket) m.parent?.remove(m);
+        const mesh = new THREE.Mesh(merged, first.material);
+        mesh.castShadow = first.castShadow;
+        mesh.receiveShadow = first.receiveShadow;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        group.add(mesh);
+    }
+
+    // Sub-groups emptied by the merge would otherwise stay in the tree, each
+    // still costing a matrix update every frame for nothing.
+    const empty: THREE.Object3D[] = [];
+    group.traverse(o => {
+        if (o !== group && o.children.length === 0 && !(o as THREE.Mesh).isMesh && !skip.has(o)) {
+            empty.push(o);
+        }
+    });
+    for (const o of empty) o.parent?.remove(o);
 }
 
 export function mergeStatic(root: THREE.Object3D, tile: number): THREE.Group {
