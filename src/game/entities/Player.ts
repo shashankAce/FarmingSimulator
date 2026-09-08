@@ -1,6 +1,6 @@
 import { Scene } from 'noonengine';
 import { CARRY, PLAYER } from '../Config.ts';
-import { PLAYER_COLORS, giveSickle } from '../procgen/Character.ts';
+import { PLAYER_COLORS, giveKukri } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { Joystick } from '../ui/Joystick.ts';
 
@@ -17,9 +17,9 @@ export class Player extends Actor {
             capacity: CARRY.playerCrates,
         });
 
-        // The sickle rides on the right arm's pivot, so it moves with the walk
-        // cycle and with the harvest spin for free.
-        giveSickle(this.rig);
+        // The kukri rides on the right arm's pivot, so it moves with the walk
+        // cycle and with the harvest swing for free.
+        giveKukri(this.rig);
     }
 
     updateWithInput(dt: number, joy: Joystick): void {

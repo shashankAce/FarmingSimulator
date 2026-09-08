@@ -627,12 +627,12 @@ export const ASSISTANT = {
  * Reach of one cut, measured from the character outward.
  *
  * Circular, and the character turns on the spot inside it, so this is literally
- * how far the sickle sweeps — everything ripe within it is in range no matter
+ * how far the kukri sweeps — everything ripe within it is in range no matter
  * which way they happen to be facing. Widening it lets a stationary character
  * clear more of a plot before having to walk.
  */
 export const HARVEST = {
-    /** How far the sickle reaches. */
+    /** How far the kukri reaches. */
     radius: 2.6,
     /**
      * Width of the cut, in degrees, centred on the way the character faces.

@@ -267,7 +267,7 @@ const ROOT_SHARE = 0.5;
 const TWIST_SHARE = 0.2;
 /**
  * Blade-arm shoulder pitch: out and low on the ready side, reaching across
- * through the cut. Both shallow, which is what keeps the sickle down near the
+ * through the cut. Both shallow, which is what keeps the kukri down near the
  * carrots — pitched further forward the arm rises and the blade sweeps the air
  * above them.
  */
@@ -283,7 +283,7 @@ const ABDUCT = 0.3;
  *
  * `ARM_IN` is small on purpose, and is the reason this is three constants
  * rather than one amplitude: swung inward much past it the paw crosses in
- * front of the chest and the arm and sickle vanish into the torso. Outward has
+ * front of the chest and the arm and blade vanish into the torso. Outward has
  * nothing to hit, so it gets the wider half of the range. Both limits were
  * checked against the torso ellipsoid and the overalls at every point of the
  * swing — the old pose sat half a unit INSIDE the torso, because a
@@ -440,51 +440,85 @@ export function animateCharacter(rig: CharacterRig, dt: number, speed01: number,
     }
 }
 
-/** A shovel the idle player holds, matching the reference character's prop. */
 /**
- * Puts a sickle in a character's right paw.
+ * Puts a kukri in a character's right paw.
  *
  * Shared rather than repeated at each call site: the player and the farmhand
  * hold the same tool the same way, and two copies of the mount drifted apart
  * the moment either was adjusted.
  *
  * Turned a half-turn about the GRIP's own axis, which is the tool's local Y, so
- * the hook curls in toward the body instead of away from it.
+ * the blade curls the way the arm swings and the edge leads the cut. The arm's
+ * local X is the direction the paw travels (see the 'YXZ' note where the arms
+ * are built), so this yaw is what decides whether the blade slices through the
+ * crop or goes at it flat-on.
  */
-export function giveSickle(rig: CharacterRig): void {
-    rig.armR.add(at(rot(scl(makeSickle(), 0.9), 0, Math.PI, 0), 0.04, -0.78, 0.06));
+export function giveKukri(rig: CharacterRig): void {
+    rig.armR.add(at(rot(scl(makeKukri(), 0.9), 0, Math.PI, 0), 0.04, -0.78, 0.06));
 }
 
-export function makeSickle(): THREE.Group {
-    // Grip runs UP from the blade, so the paw holds the handle and the hook
+/**
+ * A kukri — the heavy forward-curving chopper, held as the harvesting tool.
+ *
+ * Low poly on purpose, and built the way everything else in `procgen/` is: a
+ * short chain of boxes swept along a curve, because there is no lathe or
+ * extrude primitive here and a handful of facets reads as a curve at this size.
+ *
+ * Each segment hangs OFF the spine rather than being centred on it, so the back
+ * of the blade stays one clean curve and all of the widening goes to the edge.
+ * That asymmetry is the whole silhouette — centred segments give a bent stick,
+ * not a kukri.
+ */
+export function makeKukri(): THREE.Group {
+    // Grip runs UP from the blade, so the paw holds the handle and the blade
     // hangs below it, ready to sweep the ground.
     const g = group(
-        at(cyl(0.055, 0.062, 0.3, 6, C.WOOD), 0, 0.19, 0),
-        at(cyl(0.07, 0.07, 0.07, 6, C.METAL_DARK), 0, 0.02, 0),
+        at(cyl(0.05, 0.058, 0.3, 6, C.WOOD), 0, 0.18, 0),
+        // Flared butt cap, and the bolster the blade seats into. Two rings is
+        // what stops the handle reading as a plain dowel.
+        at(cyl(0.075, 0.06, 0.05, 6, C.METAL_DARK), 0, 0.35, 0),
+        at(cyl(0.07, 0.074, 0.055, 6, C.METAL_DARK), 0, 0.015, 0),
     );
 
-    // The hook. Segments swept round an arc in the XY plane — the plane the
-    // handle is in — because there is no torus primitive here and a handful of
-    // facets reads as a curve at this size.
-    //
-    // The arc leaves the handle TANGENTIALLY and curls away from it, so the
-    // handle sits outside the crescent at one end of it. Curving straight out
-    // sideways instead wrapped the hook back around the grip, which put the
-    // handle inside its own blade — a hook, but not a sickle.
-    const R = 0.32;
-    const N = 9;
-    const SWEEP = 3.4;
-    const cx = R;
-    const cy = -0.04;
-    for (let i = 0; i < N; i++) {
-        const th = Math.PI + (i / (N - 1)) * SWEEP;
-        const taper = 1 - (i / (N - 1)) * 0.55;
-        // Long enough to overlap its neighbour: each has to cover at least the
-        // arc step, R * SWEEP / (N - 1).
-        const seg = box(0.16, 0.09 * taper, 0.032, C.METAL);
-        at(seg, cx + Math.cos(th) * R, cy + Math.sin(th) * R, 0);
-        seg.rotation.z = th + Math.PI / 2;
+    // Blade width from bolster to tip: narrow at the grip, heavy through the
+    // belly, tapering off at the point. The kukri's character is all in here.
+    const WIDTHS = [0.085, 0.105, 0.13, 0.15, 0.145, 0.115, 0.055];
+    // Angle off vertical at the bolster, and at the tip — the forward curl.
+    const DROP0 = 0.14;
+    const DROP1 = 1.02;
+    const STEP = 0.082;
+
+    let x = 0;
+    let y = -0.03;
+    let a = DROP0;
+    for (let i = 0; i < WIDTHS.length; i++) {
+        a = DROP0 + (DROP1 - DROP0) * (i / (WIDTHS.length - 1));
+        // Along the spine, and across it toward the edge.
+        const dx = Math.sin(a);
+        const dy = -Math.cos(a);
+        const w = WIDTHS[i];
+        // Longer than the step, so each segment overlaps its neighbour and the
+        // chain stays gapless as it bends.
+        const seg = box(STEP * 1.35, w, 0.032, C.METAL);
+        at(seg,
+            x + dx * (STEP / 2) + Math.cos(a) * (w / 2),
+            y + dy * (STEP / 2) + Math.sin(a) * (w / 2),
+            0);
+        seg.rotation.z = a - Math.PI / 2;
         g.add(seg);
+        x += dx * STEP;
+        y += dy * STEP;
     }
+
+    // The point, carrying on from the last segment. Three sides is enough to
+    // close off a blade this small.
+    const tip = cyl(0, 0.026, 0.075, 3, C.METAL);
+    at(tip,
+        x + Math.cos(a) * (WIDTHS[WIDTHS.length - 1] / 2) + Math.sin(a) * 0.03,
+        y + Math.sin(a) * (WIDTHS[WIDTHS.length - 1] / 2) - Math.cos(a) * 0.03,
+        0);
+    tip.rotation.z = Math.PI + a;
+    g.add(tip);
+
     return g;
 }

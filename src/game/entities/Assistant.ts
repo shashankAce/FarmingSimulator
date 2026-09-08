@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Scene } from 'noonengine';
 import { ASSISTANT, CARRY, HARVEST, MACHINE, STATIONS } from '../Config.ts';
-import { FARMER_COLORS, SELLER_COLORS, giveSickle } from '../procgen/Character.ts';
+import { FARMER_COLORS, SELLER_COLORS, giveKukri } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { CarrotField } from '../world/CarrotField.ts';
 import type { Production } from '../stations/Production.ts';
@@ -59,7 +59,7 @@ export class FarmerAssistant extends Assistant {
     constructor(scene: Scene, ctx: FarmContext) {
         super(scene, ctx, FARMER_COLORS, STATIONS.juicerIn.x + 3, STATIONS.juicerIn.z);
         // Farmhands cut too, so they carry the same blade the player does.
-        giveSickle(this.rig);
+        giveKukri(this.rig);
     }
 
     update(dt: number): void {
