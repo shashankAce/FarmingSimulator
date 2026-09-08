@@ -154,9 +154,9 @@ export class ShopStand {
         if (!this.isOpen) return false;
 
         if (load && load.kind === 'bottle' && this.stock.hasRoom) {
-            // Read the hands BEFORE the crate leaves them — `popCrate` unparents
-            // it, and the anchor is what tells us where the throw starts.
-            const from = load.handsWorld(_handPos);
+            // Read the crate's position BEFORE it leaves — `popCrate` unparents
+            // it, and where it was is where the throw has to start from.
+            const from = load.topCrateWorld(_handPos);
             const count = load.popCrate();
             if (count > 0) { this.stock.addCrate(count, from); return true; }
         }
@@ -198,7 +198,12 @@ export class ShopStand {
 
     private _sellOne(): boolean {
         if (!this.tillHasRoom) return false;        // counter covered — clear it first
-        if (this.stock.bottles <= 0) return false;
+        // `readyBottles`, not `bottles`: a crate still arcing in from a
+        // carrier's hands is stock the stall owns but cannot serve out of yet.
+        // Testing the full count let a shopper be served against a crate that
+        // was mid-throw — `queue.serve()` runs BEFORE the bottle is taken, so
+        // the sale went through and `takeBottle` quietly failed.
+        if (this.stock.readyBottles <= 0) return false;
         if (!this.queue.serve()) return false;
         this.stock.takeBottle();
         this._state.totalSold++;

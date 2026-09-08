@@ -66,12 +66,18 @@ export class CarryLoad {
     get isCarrying(): boolean { return this._stack.length > 0; }
 
     /**
-     * World position of the hands, for anything that needs to animate a crate
-     * away from where it was actually being carried rather than from the
-     * character's feet.
+     * Where the crate that `popCrate` is about to hand over currently sits, in
+     * world space — for anything animating it away from the arms.
+     *
+     * The TOP crate, not the anchor. Crates stack upward from the anchor at
+     * `_stackHeight`, so the anchor is the bottom of the pile: animating from
+     * it made every throw look like it came off the bottom of the stack while
+     * the crate that actually left was the one on top. Falls back to the anchor
+     * when nothing is held.
      */
-    handsWorld(out: THREE.Vector3): THREE.Vector3 {
-        return this._anchor.getWorldPosition(out);
+    topCrateWorld(out: THREE.Vector3): THREE.Vector3 {
+        const top = this._stack[this._stack.length - 1];
+        return (top ? top.group : this._anchor).getWorldPosition(out);
     }
 
     /** Room for one more item of `kind`, either in an open crate or a new one. */

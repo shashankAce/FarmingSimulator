@@ -4,10 +4,7 @@ import { makeCashStack } from '../procgen/Machines.ts';
 interface Pile {
     obj: THREE.Group;
     value: number;
-    /** Landing animation progress, 0..1. */
-    t: number;
-    from: THREE.Vector3;
-    to: THREE.Vector3;
+    at: THREE.Vector3;
     /** Bob phase only. Stacks are laid square and stay square. */
     phase: number;
 }
@@ -22,6 +19,8 @@ export class CashField {
 
     private _piles: Pile[] = [];
     private _pool: THREE.Group[] = [];
+    /** Own clock, so the bob stops when the game does. */
+    private _t = 0;
 
     get count(): number { return this._piles.length; }
 
@@ -32,28 +31,29 @@ export class CashField {
     }
 
     /**
-     * Drops a stack worth `value`, arcing from `fromY` above the landing point
-     * so payouts look like they're tossed out of the shop rather than teleporting.
+     * Puts a stack worth `value` on the ground, already settled.
+     *
+     * There is no arc. Payouts used to be tossed out of a shop and land here,
+     * which is what the flight was for, but takings go to a stall's collect pad
+     * now and the only cash on the grass is the opening stake — which is meant
+     * to be lying there when the game opens, not raining down onto it.
      */
-    drop(x: number, z: number, value: number, fromX = x, fromY = 2.2, fromZ = z): void {
+    private _place(x: number, z: number, value: number): void {
         const obj = this._pool.pop() ?? makeCashStack();
         obj.visible = true;
         obj.scale.setScalar(1);
-        this.group.add(obj);
-
-        const pile: Pile = {
-            obj,
-            value,
-            t: 0,
-            from: new THREE.Vector3(fromX, fromY, fromZ),
-            to: new THREE.Vector3(x, 0.06, z),
-            phase: Math.random() * Math.PI * 2,
-        };
-        obj.position.copy(pile.from);
         // Square to the world and left that way. Pooled stacks carry the last
         // angle they were given, so this has to be assigned, not just skipped.
         obj.rotation.y = 0;
-        this._piles.push(pile);
+        obj.position.set(x, 0.06, z);
+        this.group.add(obj);
+
+        this._piles.push({
+            obj,
+            value,
+            at: new THREE.Vector3(x, 0.06, z),
+            phase: Math.random() * Math.PI * 2,
+        });
     }
 
     /**
@@ -78,7 +78,7 @@ export class CashField {
             const amount = i === count - 1 ? left : Math.min(left, per);
             left -= amount;
             if (amount <= 0) break;
-            this.drop(
+            this._place(
                 cx + (i % cols - (cols - 1) / 2) * stepX,
                 cz + (Math.floor(i / cols) - (rows - 1) / 2) * stepZ,
                 amount,
@@ -95,8 +95,7 @@ export class CashField {
         let bestD = radius * radius;
         for (let i = 0; i < this._piles.length; i++) {
             const p = this._piles[i];
-            if (p.t < 1) continue;                 // still in the air
-            const d = (p.to.x - x) ** 2 + (p.to.z - z) ** 2;
+            const d = (p.at.x - x) ** 2 + (p.at.z - z) ** 2;
             if (d < bestD) { bestD = d; best = i; }
         }
         if (best < 0) return 0;
@@ -112,25 +111,18 @@ export class CashField {
         let best: Pile | null = null;
         let bestD = Infinity;
         for (const p of this._piles) {
-            if (p.t < 1) continue;
-            const d = (p.to.x - x) ** 2 + (p.to.z - z) ** 2;
+            const d = (p.at.x - x) ** 2 + (p.at.z - z) ** 2;
             if (d < bestD) { bestD = d; best = p; }
         }
-        return best ? { x: best.to.x, z: best.to.z } : null;
+        return best ? { x: best.at.x, z: best.at.z } : null;
     }
 
     update(dt: number): void {
+        this._t += dt;
         for (const p of this._piles) {
-            if (p.t < 1) {
-                p.t = Math.min(1, p.t + dt * 1.9);
-                // Parabolic hop: lerp across, plus an arc that peaks mid-flight.
-                p.obj.position.lerpVectors(p.from, p.to, p.t);
-                p.obj.position.y += Math.sin(p.t * Math.PI) * 1.1;
-            } else {
-                // Settled: a gentle bob so it reads as collectable. Offset per
-                // pile, or a grid of them pulses in unison like one object.
-                p.obj.position.y = 0.06 + Math.sin(performance.now() * 0.003 + p.phase) * 0.06;
-            }
+            // A gentle bob so it reads as collectable. Offset per pile, or a
+            // grid of them pulses in unison like one object.
+            p.obj.position.y = p.at.y + Math.sin(this._t * 3 + p.phase) * 0.06;
         }
     }
 
