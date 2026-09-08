@@ -26,6 +26,7 @@ import { Player } from './entities/Player.ts';
 import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/Assistant.ts';
 
 import { Hud } from './ui/Hud.ts';
+import { Stats3D } from './debug/Stats3D.ts';
 import { Joystick } from './ui/Joystick.ts';
 import { DropButton } from './ui/DropButton.ts';
 
@@ -88,6 +89,8 @@ export class FarmScene extends Scene {
      * one, and a sub-unit carry-over between them is beneath notice.
      */
     private _payAccrued = 0;
+    /** 3D render stats, DEBUG only. Toggled with P. */
+    private _stats3D: Stats3D | null = null;
     /** Collider overlay, DEBUG only. Toggled with C. */
     private _colliderView: THREE.Group | null = null;
     private _playerRing: THREE.Line | null = null;
@@ -101,6 +104,9 @@ export class FarmScene extends Scene {
         sys.onRendererReady = (renderer) => {
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFShadowMap;   // PCFSoft is deprecated in three 0.185
+            // The renderer is created lazily on the first 3D frame, so this is
+            // the only place its `info` can be got hold of.
+            this._stats3D = new Stats3D(renderer, sys.scene);
         };
 
         this._buildCamera();
@@ -160,12 +166,16 @@ export class FarmScene extends Scene {
                 cash: this._cash,
                 teleport: (x: number, z: number) => { this._player.x = x; this._player.z = z; },
                 toggleColliders: () => this._toggleColliders(),
+                toggleStats: () => this._stats3D?.toggle(),
             };
         }
     }
 
     update(dt: number): void {
         const step = Math.min(dt, 1 / 20);
+        // The RAW delta, not `step`: a clamped one would report a steady 20fps
+        // as the floor however badly the game was actually hitching.
+        this._stats3D?.update(dt);
 
         this._joystick.update();
         this._dropButton.update();
@@ -260,6 +270,7 @@ export class FarmScene extends Scene {
     private _buildColliderView(): void {
         inputListener.on(Input.KEY_DOWN, (e: { code: string }) => {
             if (e.code === 'KeyC') this._toggleColliders();
+            if (e.code === 'KeyP') this._stats3D?.toggle();
         });
     }
 
