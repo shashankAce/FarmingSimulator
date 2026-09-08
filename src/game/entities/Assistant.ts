@@ -87,19 +87,21 @@ export class FarmerAssistant extends Assistant {
                 this.harvestTimer = HARVEST.interval;
 
                 const room = this.load.roomFor('carrot');
-                const cut = this.ctx.field.harvestArc(
+                // Looked up now, taken when the blade lands — see `Actor.sweep`.
+                const ripe = this.ctx.field.ripeInArc(
                     this.x, this.z, HARVEST.radius, this.yaw,
                     (HARVEST.arcDeg * Math.PI) / 360, room);
-                if (cut.length === 0) {
+                if (ripe.length === 0) {
                     // Patch exhausted: either move on, or go deliver what we have.
                     this._target = null;
                     this._phase = this.load.isEmpty ? 'to-field' : 'to-juicer';
                     break;
                 }
-                this.sweep();
-                cut.forEach((spot, i) => {
-                    this.load.push('carrot', new THREE.Vector3(spot.x, 0.45, spot.z),
-                        HARVEST.settle + i * HARVEST.stagger);
+                this.sweep(() => {
+                    this.ctx.field.cutAt(ripe).forEach((spot, i) => {
+                        this.load.push('carrot', new THREE.Vector3(spot.x, 0.45, spot.z),
+                            HARVEST.settle + i * HARVEST.stagger);
+                    });
                 });
                 break;
             }

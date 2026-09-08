@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { Node, Scene } from 'noonengine';
 import { Group3D } from 'noonengine/3d';
-import { animateCharacter, CharacterColors, CharacterRig, makeCharacter } from '../procgen/Character.ts';
+import {
+    animateCharacter, CharacterColors, CharacterRig, makeCharacter, startSwing, SWING_CUT_DELAY,
+} from '../procgen/Character.ts';
 import { CarryLoad } from '../world/CarryLoad.ts';
 import { clampToYard } from '../world/Environment.ts';
 import { obstacles } from '../world/Obstacles.ts';
@@ -27,16 +29,25 @@ export class Actor {
     speed: number;
 
     /**
-     * Swings the blade to the other end of its arc.
+     * Swings the blade — one chop, lift included.
      *
-     * Alternating rather than repeating, so successive calls read as one blade
-     * going to and fro. The hold is generous enough to outlast the gap between
-     * sweeps, so the arms only drop once harvesting actually stops.
+     * `onCut` is held back until the blade actually reaches the crop, part way
+     * through the swing. The caller therefore decides WHAT a cut does and this
+     * decides WHEN, which is the only way the two can agree: harvesting on the
+     * frame the swing was asked for takes the carrots out of the ground before
+     * the blade has left the ready side.
+     *
+     * The timeline itself lives in `procgen/Character.ts` with the rest of the
+     * pose work; this only says how wide the arc is and how long the arms stay
+     * up.
      */
-    sweep(): void {
-        const half = (HARVEST.arcDeg * Math.PI) / 360;
-        this.rig.sweepTo = this.rig.sweepTo > 0 ? -half : half;
-        this.rig.sweepHold = HARVEST.interval * 1.6;
+    sweep(onCut?: () => void): void {
+        // A cut still waiting is settled now rather than dropped — the swing it
+        // belonged to has been and gone, and those carrots are owed.
+        this._landCut();
+        startSwing(this.rig, (HARVEST.arcDeg * Math.PI) / 360, HARVEST.interval * 1.6);
+        this._onCut = onCut ?? null;
+        this._cutIn = SWING_CUT_DELAY;
     }
 
     /**
@@ -51,6 +62,9 @@ export class Actor {
     protected _dirZ = 0;
     /** Smoothed 0..1 speed, drives the walk cycle. */
     protected _speed01 = 0;
+    /** A cut waiting on the blade: what it does, and how long until it lands. */
+    private _onCut: (() => void) | null = null;
+    private _cutIn = 0;
 
     constructor(scene: Scene, colors: CharacterColors, opts: { x: number; z: number; speed: number; capacity: number }) {
         this.rig = makeCharacter(colors);
@@ -119,12 +133,27 @@ export class Actor {
         this.rig.root.position.set(this.x, 0, this.z);
         this.rig.root.rotation.y = this.yaw;
 
+        if (this._onCut) {
+            this._cutIn -= dt;
+            if (this._cutIn <= 0) this._landCut();
+        }
+
         animateCharacter(this.rig, dt, this._speed01, this.load.isCarrying);
         this.load.update(dt);
     }
 
+    /** Runs the pending cut, if any. */
+    private _landCut(): void {
+        const cut = this._onCut;
+        this._onCut = null;
+        this._cutIn = 0;
+        cut?.();
+    }
+
     /** Removes the actor from the scene (used if an upgrade is ever refunded). */
     destroy(): void {
+        // Dropped rather than landed: there is nowhere left to put the carrots.
+        this._onCut = null;
         this.load.clear();
         this.node.removeFromParent(true);
     }

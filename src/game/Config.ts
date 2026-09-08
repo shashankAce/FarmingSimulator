@@ -694,6 +694,30 @@ export const CARRY = {
     pitch: { bottle: 0.86, carrot: 0.78 },
 };
 
+/**
+ * ─── DEV TOGGLES ─────────────────────────────────────────────────────────────
+ * Switches for working on ONE thing without the rest of the game getting in
+ * the way. All of them are off in a normal build; flip one by hand while
+ * iterating and flip it back.
+ */
+export const DEV = {
+    /**
+     * Freezes carrying: nothing ever accumulates in a character's hands.
+     *
+     * Cut carrots vanish instead of arcing into a basket, no crate is ever
+     * built, and the load reports itself permanently empty — so a basket never
+     * fills, harvesting never stops for want of room, and the carry pose never
+     * takes the arms over from the harvest animation. That last part is the
+     * point: with a load held, `animateCharacter` locks the arms onto the
+     * crates, which hides whatever the swing is doing.
+     *
+     * It freezes the whole economy with it — nothing is delivered, juiced or
+     * sold while this is on, and assistants will harvest forever. Purely a
+     * harvest-animation scratchpad.
+     */
+    freezeCarry: true,
+};
+
 export const ECONOMY = {
     /** Cash sitting on the ground at the start of the run. */
     startCash: 60,

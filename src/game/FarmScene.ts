@@ -612,16 +612,20 @@ export class FarmScene extends Scene {
         const room = who.load.roomFor('carrot');
         if (room <= 0) return;
 
-        const cut = this._field.harvestArc(
+        // Looked up now so the swing only happens over standing crop, but taken
+        // later — `sweep` holds the cut back until the blade reaches the ground.
+        const ripe = this._field.ripeInArc(
             who.x, who.z, HARVEST.radius, who.yaw, (HARVEST.arcDeg * Math.PI) / 360, room);
-        if (cut.length === 0) return;
+        if (ripe.length === 0) return;
 
-        who.sweep();
-        cut.forEach((spot, i) => {
-            who.load.push('carrot', new THREE.Vector3(spot.x, CARROT_LIFT, spot.z),
-                HARVEST.settle + i * HARVEST.stagger);
+        who.sweep(() => {
+            const cut = this._field.cutAt(ripe);
+            cut.forEach((spot, i) => {
+                who.load.push('carrot', new THREE.Vector3(spot.x, CARROT_LIFT, spot.z),
+                    HARVEST.settle + i * HARVEST.stagger);
+            });
+            this._state.totalHarvested += cut.length;
         });
-        this._state.totalHarvested += cut.length;
     }
 
     /**

@@ -109,23 +109,24 @@ export class CarrotField {
     }
 
     /**
-     * Pulls the nearest ready carrot within `radius` of (x, z).
-     * Returns true if one was harvested.
-     */
-    /**
-     * Cuts every ripe carrot inside a wedge in front of the character and
-     * reports where each one stood, nearest first.
+     * Every ripe carrot inside a wedge in front of the character, nearest
+     * first. A QUERY — nothing is taken; pass the result to `cutAt` when the
+     * blade actually gets there.
+     *
+     * Split from the taking because a swing has a wind-up: harvesting on the
+     * same frame the swing was asked for made the crop vanish a quarter of a
+     * second before the blade reached it.
      *
      * A wedge rather than a circle: the blade only covers what it sweeps, and
      * reaping the row behind you off the same swing looks like nothing at all.
      * `facing` is a world yaw and `halfArc` the half-width in radians, so the
      * pair describe exactly the ground the animation covers.
      */
-    harvestArc(
+    ripeInArc(
         x: number, z: number, radius: number,
         facing: number, halfArc: number, max: number,
     ): Array<{ x: number; z: number }> {
-        const cut: Array<{ x: number; z: number; d: number }> = [];
+        const found: Array<{ x: number; z: number; d: number }> = [];
         for (const s of this._slots) {
             if (s.growth < 1) continue;
             const dx = s.x - x;
@@ -138,18 +139,32 @@ export class CarrotField {
             while (off > Math.PI) off -= Math.PI * 2;
             while (off < -Math.PI) off += Math.PI * 2;
             if (Math.abs(off) > halfArc) continue;
-            cut.push({ x: s.x, z: s.z, d });
+            found.push({ x: s.x, z: s.z, d });
         }
 
-        cut.sort((a, b) => a.d - b.d);
-        cut.length = Math.min(cut.length, max);
-        for (const c of cut) {
-            const slot = this._slots.find(s => s.x === c.x && s.z === c.z)!;
+        found.sort((a, b) => a.d - b.d);
+        found.length = Math.min(found.length, max);
+        return found.map(c => ({ x: c.x, z: c.z }));
+    }
+
+    /**
+     * Takes the carrots at `spots` and reports which ones were actually there.
+     *
+     * Re-checks each one rather than trusting the list: the caller queried
+     * before its swing landed, and in between another character's blade may
+     * have taken the same carrot. Only what is returned was harvested.
+     */
+    cutAt(spots: Array<{ x: number; z: number }>): Array<{ x: number; z: number }> {
+        const taken: Array<{ x: number; z: number }> = [];
+        for (const spot of spots) {
+            const slot = this._slots.find(s => s.x === spot.x && s.z === spot.z);
+            if (!slot || slot.growth < 1) continue;
             slot.growth = 0;
             slot.cooldown = FIELD.regrowTime;
+            taken.push({ x: slot.x, z: slot.z });
         }
-        if (cut.length > 0) this._dirty = true;
-        return cut.map(c => ({ x: c.x, z: c.z }));
+        if (taken.length > 0) this._dirty = true;
+        return taken;
     }
 
 

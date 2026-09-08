@@ -4,7 +4,7 @@ import {
     RACK_CAPACITY, makeBottleRack, makeCarrotBasket,
 } from '../procgen/Containers.ts';
 import { makeBottle, makeCarrot } from '../procgen/Machines.ts';
-import { CHARACTER } from '../Config.ts';
+import { CHARACTER, DEV } from '../Config.ts';
 
 export type ItemKind = 'carrot' | 'bottle';
 
@@ -20,7 +20,7 @@ const CAPACITY: Record<ItemKind, number> = { carrot: BASKET_CAPACITY, bottle: RA
 /** Vertical pitch when crates are stacked in the arms, before CARRY_SCALE. */
 const PITCH: Record<ItemKind, number> = CRATE_PITCH;
 /**
- * Crate scale inside the arms.
+ * Crate scale on the character.
  *
  * `CRATE_SCALE` is a WORLD size and every other site uses it directly, but
  * these crates hang off a character that is itself scaled by `CHARACTER.scale`,
@@ -62,8 +62,9 @@ interface Picked {
 }
 
 /**
- * What a character is carrying: a small stack of crates held out in front, not
- * a column of loose goods balanced on the head.
+ * What a character is carrying: a small stack of crates riding on their back
+ * (see `holdAnchor` in `procgen/Character.ts`), not a column of loose goods
+ * balanced on the head.
  *
  * Items always live inside a container — a slatted rack for bottles, an open
  * basket for carrots — and a container that runs empty is discarded outright.
@@ -123,6 +124,9 @@ export class CarryLoad {
      * not just whether one more fits.
      */
     roomFor(kind: ItemKind): number {
+        // Frozen: always room for a full load, so a sweep is never trimmed for
+        // want of space and harvesting can run indefinitely.
+        if (DEV.freezeCarry) return this._maxContainers * CAPACITY[kind];
         if (!this.isEmpty && this.kind !== kind) return 0;
         const top = this._stack[this._stack.length - 1];
         const inOpen = top ? CAPACITY[kind] - top.items.length : 0;
@@ -131,6 +135,7 @@ export class CarryLoad {
 
     /** Room for one more item of `kind`, either in an open crate or a new one. */
     accepts(kind: ItemKind): boolean {
+        if (DEV.freezeCarry) return true;
         if (!this.isEmpty && this.kind !== kind) return false;
         const top = this._stack[this._stack.length - 1];
         if (top && top.items.length < CAPACITY[kind]) return true;
@@ -139,6 +144,7 @@ export class CarryLoad {
 
     /** Room to take on a whole pre-filled crate (a rack lifted off the stand). */
     canAdopt(kind: ItemKind): boolean {
+        if (DEV.freezeCarry) return true;
         if (!this.isEmpty && this.kind !== kind) return false;
         return this._stack.length < this._maxContainers;
     }
@@ -154,6 +160,10 @@ export class CarryLoad {
      * a moment and then go in one at a time.
      */
     push(kind: ItemKind, from?: THREE.Vector3, delay = 0): boolean {
+        // Frozen: accepted and dropped on the floor. The caller still believes
+        // the item went somewhere, so harvesting keeps cutting, but no crate is
+        // built and the hands stay free for the animation being worked on.
+        if (DEV.freezeCarry) return true;
         if (!this.accepts(kind)) return false;
 
         let top = this._stack[this._stack.length - 1];
@@ -193,6 +203,7 @@ export class CarryLoad {
      * production stand. Returns false when there's no room for another crate.
      */
     adoptFilled(kind: ItemKind, count: number): boolean {
+        if (DEV.freezeCarry) return true;
         if (!this.isEmpty && this.kind !== kind) return false;
         if (this._stack.length >= this._maxContainers) return false;
 
