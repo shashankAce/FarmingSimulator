@@ -1,5 +1,5 @@
 import { Button, GlobalEvents, Graphics, Label, Node, Scene, display, inputListener } from 'noonengine';
-import { FONT_FAMILY, PILL } from '../Config.ts';
+import { FONT_FAMILY, PILL, hudScale } from '../Config.ts';
 
 
 /**
@@ -23,9 +23,14 @@ export class DropButton {
     private _y = 0;
     private _onDrop: () => void;
 
-    private static readonly W = PILL.w;
-    private static readonly H = PILL.h;
-    private static readonly STROKE = PILL.stroke;
+    /**
+     * Sized like the money pill, and shrunk on a phone the same way — see
+     * `hudScale`. Instance fields rather than statics, since the device is not
+     * known until something is constructed.
+     */
+    private readonly _w: number;
+    private readonly _h: number;
+    private readonly _stroke: number;
     /** Keyboard equivalent, for playing at a desk. */
     private static readonly KEY = 'KeyQ';
 
@@ -34,17 +39,22 @@ export class DropButton {
     constructor(scene: Scene, onDrop: () => void) {
         this._onDrop = onDrop;
 
+        const s = hudScale();
+        this._w = Math.round(PILL.w * s);
+        this._h = Math.round(PILL.h * s);
+        this._stroke = Math.round(PILL.stroke * s);
+
         this._node = new Node();
         const gfx = this._node.addComponent(Graphics);
-        gfx.setLineWidth(DropButton.STROKE);
-        gfx.drawRoundedRectangle(DropButton.W, DropButton.H, DropButton.H / 2, '#8a5433', '#f2c94c');
+        gfx.setLineWidth(this._stroke);
+        gfx.drawRoundedRectangle(this._w, this._h, this._h / 2, '#8a5433', '#f2c94c');
         this._node.zIndex = 1000;
 
         const labelNode = new Node(0, 0);
         const label = labelNode.addComponent(Label);
         label.text = 'DROP';
         label.fontFamily = FONT_FAMILY;
-        label.fontSize = 30;
+        label.fontSize = Math.round(30 * s);
         label.fontWeight = 800;
         label.color = '#ffffff';
         label.textAlign = 'center';
@@ -86,8 +96,8 @@ export class DropButton {
     hits(x: number, y: number): boolean {
         // Padded by the stroke, because `Graphics` grows `node.width/height` by
         // it — the button's own hit area is the one that has to be covered.
-        const px = DropButton.W / 2 + DropButton.STROKE;
-        const py = DropButton.H / 2 + DropButton.STROKE;
+        const px = this._w / 2 + this._stroke;
+        const py = this._h / 2 + this._stroke;
         return this._visible && Math.abs(x - this._x) <= px && Math.abs(y - this._y) <= py;
     }
 
@@ -104,14 +114,14 @@ export class DropButton {
         const r = display.getVisibleRect();
         // Above the money pill's opposite corner, clear of the joystick's usual
         // half of the screen.
-        this._x = r.x + r.width - DropButton.W / 2 - 40;
-        this._y = r.y + DropButton.H / 2 + 56;
+        this._x = r.x + r.width - this._w / 2 - 40;
+        this._y = r.y + this._h / 2 + 56;
         this._place();
     }
 
     private _place(): void {
         this._node.setPosition(this._visible
             ? { x: this._x, y: this._y }
-            : { x: -DropButton.W * 4, y: -DropButton.H * 4 });
+            : { x: -this._w * 4, y: -this._h * 4 });
     }
 }

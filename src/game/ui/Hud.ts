@@ -1,5 +1,5 @@
 import { GlobalEvents, Graphics, Label, Node, Scene, display } from 'noonengine';
-import { FONT_FAMILY, PILL } from '../Config.ts';
+import { FONT_FAMILY, PILL, hudScale } from '../Config.ts';
 import { C } from '../Palette.ts';
 import type { GameState, Objective } from '../GameState.ts';
 
@@ -43,6 +43,8 @@ export class Hud {
     private _toastNode: Node;
     private _toastTimer = 0;
 
+    /** Device size factor, applied to every authored dimension below. */
+    private _s = 1;
     private _pill: Node;
     private _objWrap: Node;
     private _stockPill: Node;
@@ -50,22 +52,27 @@ export class Hud {
     private _toastBaseY = 0;
 
     constructor(scene: Scene, state: GameState) {
+        this._s = hudScale();
+        // Rounded, because a Label baked at a fractional size lands between
+        // pixels and blurs exactly like a scaled node would.
+        const px = (v: number): number => Math.round(v * this._s);
+
         // ── Money pill, pinned to the top-right ──
         const pill = new Node();
         this._pill = pill;
         const pillGfx = pill.addComponent(Graphics);
-        pillGfx.setLineWidth(PILL.stroke);
-        pillGfx.drawRoundedRectangle(PILL.w, PILL.h, PILL.h / 2, '#5a3a22', '#c9a15e');
+        pillGfx.setLineWidth(px(PILL.stroke));
+        pillGfx.drawRoundedRectangle(px(PILL.w), px(PILL.h), px(PILL.h / 2), '#5a3a22', '#c9a15e');
         pill.zIndex = 1000;
         scene.addChild(pill);
 
-        pill.addChild(Hud._moneyGlyph(-40));
+        pill.addChild(Hud._moneyGlyph(px(-40), px(GLYPH_UNIT)));
 
-        const moneyNode = new Node(24, 0);
+        const moneyNode = new Node(px(24), 0);
         this._moneyLabel = moneyNode.addComponent(Label);
         this._moneyLabel.text = '0';
         this._moneyLabel.fontFamily = FONT_FAMILY;
-        this._moneyLabel.fontSize = 30;
+        this._moneyLabel.fontSize = px(30);
         this._moneyLabel.fontWeight = 800;
         this._moneyLabel.color = '#ffffff';
         this._moneyLabel.textAlign = 'center';
@@ -81,7 +88,7 @@ export class Hud {
 
         // Label has no stroke property, so the outlined look from the reference
         // is faked with a dark copy offset behind the light one.
-        const shadowNode = new Node(3, -4);
+        const shadowNode = new Node(px(3), px(-4));
         this._objectiveShadow = shadowNode.addComponent(Label);
         objWrap.addChild(shadowNode);
 
@@ -95,7 +102,7 @@ export class Hud {
         ] as Array<[Label, string]>) {
             lbl.text = OBJECTIVE_TEXT[state.objective];
             lbl.fontFamily = FONT_FAMILY;
-            lbl.fontSize = 30;
+            lbl.fontSize = px(30);
             lbl.fontWeight = 800;
             lbl.color = color;
             lbl.textAlign = 'center';
@@ -105,8 +112,8 @@ export class Hud {
         const stockPill = new Node();
         this._stockPill = stockPill;
         const stockGfx = stockPill.addComponent(Graphics);
-        stockGfx.setLineWidth(PILL.stroke);
-        stockGfx.drawRoundedRectangle(STOCK.w, STOCK.h, 20, '#5a3a22', '#c9a15e');
+        stockGfx.setLineWidth(px(PILL.stroke));
+        stockGfx.drawRoundedRectangle(px(STOCK.w), px(STOCK.h), px(20), '#5a3a22', '#c9a15e');
         stockPill.zIndex = 999;
         scene.addChild(stockPill);
 
@@ -114,12 +121,12 @@ export class Hud {
             // Anchor each line's LEFT edge, not its centre — a left-aligned
             // label still straddles its own position otherwise, so the three
             // would step in and out as their values changed width.
-            const line = new Node(-STOCK.w / 2 + STOCK.pad, (1 - i) * STOCK.line);
+            const line = new Node(px(-STOCK.w / 2 + STOCK.pad), px((1 - i) * STOCK.line));
             line.anchorX = 0;
             const label = line.addComponent(Label);
             label.text = '';
             label.fontFamily = FONT_FAMILY;
-            label.fontSize = 24;
+            label.fontSize = px(24);
             label.fontWeight = 700;
             label.color = '#ffffff';
             label.textAlign = 'left';
@@ -135,7 +142,7 @@ export class Hud {
         this._toastLabel = this._toastNode.addComponent(Label);
         this._toastLabel.text = '';
         this._toastLabel.fontFamily = FONT_FAMILY;
-        this._toastLabel.fontSize = 44;
+        this._toastLabel.fontSize = px(44);
         this._toastLabel.fontWeight = 800;
         this._toastLabel.color = '#ffe9a8';
         this._toastLabel.textAlign = 'center';
@@ -175,21 +182,21 @@ export class Hud {
      * set explicitly rather than trusting child order, since the whole point is
      * that the smaller layers land on top of the larger ones.
      */
-    private static _moneyGlyph(x: number): Node {
+    private static _moneyGlyph(x: number, unit: number): Node {
         const glyph = new Node(x, 0);
         let depth = 0;
 
         const add = (dx: number, dy: number, draw: (g: Graphics) => void): void => {
-            const node = new Node(dx * GLYPH_UNIT, dy * GLYPH_UNIT);
+            const node = new Node(dx * unit, dy * unit);
             draw(node.addComponent(Graphics));
             node.zIndex = depth++;
             glyph.addChild(node);
         };
         const plate = (w: number, h: number, r: number, fill: number): void =>
             add(0, 0, g => g.drawRoundedRectangle(
-                w * GLYPH_UNIT, h * GLYPH_UNIT, r * GLYPH_UNIT, css(fill), null));
+                w * unit, h * unit, r * unit, css(fill), null));
         const disc = (r: number, fill: number, dx = 0, dy = 0): void =>
-            add(dx, dy, g => g.drawCircle(r * GLYPH_UNIT, css(fill), null));
+            add(dx, dy, g => g.drawCircle(r * unit, css(fill), null));
 
         plate(0.82, 0.46, 0.08, C.MONEY);
         plate(0.7, 0.34, 0.05, C.MONEY_DARK);
@@ -213,11 +220,15 @@ export class Hud {
         const centerX = r.x + r.width / 2;
 
         // Same right margin the wider pill had.
-        this._pill.setPosition({ x: right - PILL.w / 2 - MARGIN, y: top - PILL.h / 2 - MARGIN });
-        this._objWrap.setPosition({ x: centerX, y: top - 150 });
+        const s = this._s;
+        this._pill.setPosition({
+            x: right - (PILL.w / 2 + MARGIN) * s,
+            y: top - (PILL.h / 2 + MARGIN) * s,
+        });
+        this._objWrap.setPosition({ x: centerX, y: top - 150 * s });
         this._stockPill.setPosition({
-            x: left + STOCK.w / 2 + MARGIN,
-            y: top - STOCK.h / 2 - MARGIN,
+            x: left + (STOCK.w / 2 + MARGIN) * s,
+            y: top - (STOCK.h / 2 + MARGIN) * s,
         });
 
         this._toastBaseY = r.y + r.height * 0.62;
@@ -241,7 +252,7 @@ export class Hud {
             // Rise and shrink away rather than fading — an opacity change would
             // cascade through the node's subtree every frame.
             const k = Math.max(0, this._toastTimer / 2.4);
-            this._toastNode.y = this._toastBaseY + (1 - k) * 90;
+            this._toastNode.y = this._toastBaseY + (1 - k) * 90 * this._s;
             const s = 0.6 + k * 0.4;
             this._toastNode.setScale(s, s);
             if (this._toastTimer <= 0) this._toastLabel.text = '';

@@ -6,6 +6,7 @@
  * The player is confined to the fenced rectangle described by `YARD`.
  */
 
+import { display } from 'noonengine';
 import type { IconKind } from './procgen/Icons.ts';
 
 export const GAME_WIDTH = 1280;
@@ -55,6 +56,26 @@ export const FONT_FAMILY = 'Cherry Bomb One';
  * two sets of numbers drifted apart the moment one was tuned.
  */
 export const PILL = { w: 140, h: 48, stroke: 4 };
+
+/**
+ * HUD sizing. Everything is authored at desktop size and multiplied by
+ * `hudScale()`.
+ *
+ * MULTIPLIED, not applied as a node scale: a `Label` bakes its text to a bitmap
+ * at whatever `fontSize` it was given, so scaling the node afterwards resamples
+ * that bitmap and the text goes soft. The same goes for `Graphics`.
+ *
+ * The design resolution is FIXED_HEIGHT, so a design pixel is already the same
+ * fraction of screen height everywhere — this is not about pixel density. It is
+ * about width: a phone's aspect crops the design box hard, and panels sized for
+ * a desktop's width eat most of what is left.
+ */
+export const HUD = { mobileScale: 0.75 };
+
+/** `HUD.mobileScale` on a phone, 1 on desktop and tablet. */
+export function hudScale(): number {
+    return display.isMobile() ? HUD.mobileScale : 1;
+}
 export const FONT_SRC = 'res/fonts/CherryBombOne-Regular.ttf';
 
 /**
