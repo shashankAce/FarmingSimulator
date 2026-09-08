@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MACHINE, STATIONS } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, cyl } from '../procgen/Primitives.ts';
-import { BELT_Y, makeBottle, makeConveyor, makeJuicer } from '../procgen/Machines.ts';
+import { BELT_Y, makeBeltJoin, makeBottle, makeConveyor, makeJuicer } from '../procgen/Machines.ts';
 import {
     CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, LOOSE_BOTTLE_SCALE, RACK_CAPACITY,
     makeBottleRack, makeRackStandFrame,
@@ -92,6 +92,11 @@ export class Production {
         at(belt.group, 0, 0, STATIONS.conveyor.z);
         this._treads = belt.treads;
         this.group.add(belt.group);
+
+        // Shroud closing the gap between the machine and the belt's head.
+        const join = makeBeltJoin(STATIONS.juicer.x, STATIONS.conveyor.x0);
+        at(join, 0, 0, STATIONS.conveyor.z);
+        this.group.add(join);
 
         // ── Rack stand ──
         this._rackOrigin.set(STATIONS.racks.x, 0, STATIONS.racks.z);

@@ -87,6 +87,30 @@ export function makeJuicer(): { group: THREE.Group; wheel: THREE.Mesh; funnel: T
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Closed duct joining the juicer's body to the head housing of the belt.
+ *
+ * Without it the two stand a third of a unit apart and the belt reads as
+ * beginning in mid-air beside the machine rather than being fed by it. Solid on
+ * every face, and narrower than the housing so it reads as a connector rather
+ * than more housing.
+ *
+ * Both ends are buried rather than butted: `from` is pushed inside the juicer's
+ * drum and `to` inside the housing's back wall, so neither joint shows a seam
+ * if the plant is moved and the two ends no longer line up exactly.
+ */
+export function makeBeltJoin(juicerX: number, beltX0: number): THREE.Group {
+    const g = new THREE.Group();
+    const from = juicerX - 1.4;
+    const to = beltX0 + 0.9;
+    const len = Math.abs(from - to);
+    const cx = (from + to) / 2;
+
+    g.add(at(box(len, 1.15, 1.5, C.METAL_DARK), cx, BELT_Y + 0.72, 0));
+    g.add(at(box(len, 0.16, 1.62, C.WOOD), cx, BELT_Y + 1.32, 0));
+    return g;
+}
+
+/**
  * A belt running along -X from `x0` to `x1` at height `BELT_Y`. The cleats are
  * returned so they can be scrolled while the belt is carrying bottles.
  */
@@ -94,16 +118,25 @@ export const BELT_Y = 1.15;
 
 /** Top face of the belt slab — where cargo sits and the cleats stand proud. */
 const BELT_TOP = BELT_Y + 0.07;
+/** End housing: how far outward of the belt end it sits, and how long it is. */
+const HOUSING_OFFSET = 0.35;
+const HOUSING_LEN = 1.5;
 
 export function makeConveyor(x0: number, x1: number): { group: THREE.Group; treads: THREE.Mesh[] } {
     const g = new THREE.Group();
     const len = Math.abs(x1 - x0);
     const cx = (x0 + x1) / 2;
 
-    // Belt surface plus side rails.
-    g.add(at(box(len, 0.14, 1.5, C.METAL_DARK), cx, BELT_Y, 0));
-    g.add(at(box(len, 0.26, 0.16, C.WOOD), cx, BELT_Y + 0.12, 0.78));
-    g.add(at(box(len, 0.26, 0.16, C.WOOD), cx, BELT_Y + 0.12, -0.78));
+    // Belt surface plus side rails. The slab runs PAST both ends by enough to
+    // reach the back wall of each end housing: `x0`/`x1` are where the cargo
+    // enters and leaves, not where the structure stops, and a slab ending there
+    // stopped halfway through its own housing — from the side you looked in
+    // through the open mouth and saw bare ground behind the belt.
+    const overhang = HOUSING_OFFSET + HOUSING_LEN / 2;
+    const slab = len + overhang * 2;
+    g.add(at(box(slab, 0.14, 1.5, C.METAL_DARK), cx, BELT_Y, 0));
+    g.add(at(box(slab, 0.26, 0.16, C.WOOD), cx, BELT_Y + 0.12, 0.78));
+    g.add(at(box(slab, 0.26, 0.16, C.WOOD), cx, BELT_Y + 0.12, -0.78));
 
     // Legs.
     const legs = Math.max(2, Math.round(len / 2.6));
@@ -126,20 +159,21 @@ export function makeConveyor(x0: number, x1: number): { group: THREE.Group; trea
     // doorway instead of a missing panel, and clears the cargo easily — the
     // gap runs from the wall feet up to `BELT_Y + 0.745`.
     const wall = 0.16;
+    const half = HOUSING_LEN / 2;
     for (const [x, dir] of [[x0, 1], [x1, -1]] as Array<[number, number]>) {
         const cover = new THREE.Group();
         const midY = BELT_Y + 0.72;
         // Back, i.e. the outward face, and the two flanks.
-        cover.add(at(box(wall, 1.15, 1.9, C.METAL_DARK), dir * (0.75 - wall / 2), midY, 0));
+        cover.add(at(box(wall, 1.15, 1.9, C.METAL_DARK), dir * (half - wall / 2), midY, 0));
         for (const z of [-1, 1]) {
-            cover.add(at(box(1.5, 1.15, wall, C.METAL_DARK), 0, midY, z * (0.95 - wall / 2)));
+            cover.add(at(box(HOUSING_LEN, 1.15, wall, C.METAL_DARK), 0, midY, z * (0.95 - wall / 2)));
         }
         // Header over the mouth. Its underside is the top of the opening.
-        cover.add(at(box(wall, 0.55, 1.9, C.METAL_DARK), -dir * (0.75 - wall / 2), BELT_Y + 1.02, 0));
+        cover.add(at(box(wall, 0.55, 1.9, C.METAL_DARK), -dir * (half - wall / 2), BELT_Y + 1.02, 0));
         // Wooden cap. Sits low enough to overlap the wall tops, which is what
         // closes the roof — there is no separate one.
-        cover.add(at(box(1.62, 0.16, 2.0, C.WOOD), 0, BELT_Y + 1.32, 0));
-        at(cover, x + dir * 0.35, 0, 0);
+        cover.add(at(box(HOUSING_LEN + 0.12, 0.16, 2.0, C.WOOD), 0, BELT_Y + 1.32, 0));
+        at(cover, x + dir * HOUSING_OFFSET, 0, 0);
         g.add(cover);
     }
 
