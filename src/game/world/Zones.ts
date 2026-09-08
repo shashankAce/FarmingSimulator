@@ -91,7 +91,10 @@ export class Zone {
             const icon = makeFlatIcon(opts.icon);
             // Sits slightly back so the progress bar has the near edge to itself.
             at(icon, 0, 0.09, opts.showProgress ? -0.18 : 0);
-            icon.scale.setScalar(Math.min(w, d) * 0.62);
+            // multiply, not set: a glyph may carry its own intrinsic scale (the
+            // staff busts are drawn smaller than the produce icons), and
+            // setScalar here would silently throw that away.
+            icon.scale.multiplyScalar(Math.min(w, d) * 0.62);
             g.add(icon);
         }
 

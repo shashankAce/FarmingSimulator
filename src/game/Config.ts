@@ -202,7 +202,7 @@ export const SHOP = {
     /** How far inside the fence the stall body sits. */
     inset: 2.0,
     /** From the stall origin to the player's serving pad, further inward. */
-    sellDistance: 1.5,
+    sellDistance: 1.0,
     /**
      * Where dropped crates land, relative to the stall: along the fence, then
      * inward. A NEGATIVE `dropInward` pushes them back OUT toward the counter,
@@ -218,7 +218,7 @@ export const SHOP = {
      * crates land silently dragged this pad into the counter's collider.
      */
     hireAlong: 3.0,
-    hireInward: 0.6,
+    hireInward: 1,
     /**
      * Construction-plot deck, in stall-local units. `offset` pushes it toward
      * the customer side so it clears the serving pad behind it.
@@ -231,7 +231,7 @@ export const SHOP = {
     /** From the stall origin out to the counter face. */
     counterOffset: 1.7,
     /** Size of the serving / construction pad. */
-    padW: 3.8,
+    padW: 1.8,
     padD: 3.0,
 };
 

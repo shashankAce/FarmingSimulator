@@ -10,6 +10,7 @@ import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
 
 import { at, rot } from './procgen/Primitives.ts';
+import type { IconKind } from './procgen/Icons.ts';
 
 import { buildEnvironment } from './world/Environment.ts';
 import { CarrotField } from './world/CarrotField.ts';
@@ -342,7 +343,7 @@ export class FarmScene extends Scene {
          */
         const makeSlot = (
             pos: { x: number; z: number },
-            icon: 'hire' | 'shop',
+            icon: IconKind,
             slot: Omit<UpgradeSlot, 'zone' | 'paid'>,
         ): UpgradeSlot => {
             const zone = new Zone(`slot${this._slots.length}`, pos.x, pos.z,
@@ -380,7 +381,7 @@ export class FarmScene extends Scene {
 
         // ── Farmhands, along the near edge of the field ──
         farmhandPads().forEach((pos, i) => {
-            makeSlot(pos, 'hire', {
+            makeSlot(pos, 'farmhand', {
                 title: () => 'HIRE FARMHAND',
                 // Slot i unlocks once you have i staff, so they're bought in order.
                 available: () => this._state.farmhands === i && i < this._shops.stands.length,
@@ -395,7 +396,7 @@ export class FarmScene extends Scene {
 
         // ── Shopkeepers, one per stall, on the stall's spare flank ──
         this._shops.stands.forEach((stand, i) => {
-            makeSlot(stand.place.hirePad, 'hire', {
+            makeSlot(stand.place.hirePad, 'shopkeeper', {
                 title: () => 'HIRE SHOPKEEPER',
                 // Only once that stall exists — hiring staff for a building site
                 // reads as a bug.
