@@ -308,9 +308,6 @@ export class ShopRow {
         }
     }
 
-    /** The free first stand, opened by collecting the starting cash. */
-    openFirst(): void { this.stands[0].build(); }
-
     get anyOpen(): boolean { return this.stands.some(s => s.isOpen); }
 
     get openCount(): number { return this.stands.filter(s => s.isOpen).length; }

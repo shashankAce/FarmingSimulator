@@ -80,6 +80,13 @@ export class FarmScene extends Scene {
     private _slots: UpgradeSlot[] = [];
 
     private _transferTimer = 0;
+    /**
+     * Fractional part of a payment ramp, held between frames so the charge can
+     * be whole units without making the rate frame-dependent. Capped at one
+     * second's worth and shared across pads — the player only ever stands on
+     * one, and a sub-unit carry-over between them is beneath notice.
+     */
+    private _payAccrued = 0;
     /** Collider overlay, DEBUG only. Toggled with C. */
     private _colliderView: THREE.Group | null = null;
     private _playerRing: THREE.Line | null = null;
@@ -447,6 +454,7 @@ export class FarmScene extends Scene {
             slot.zone.occupied = on && slot.zone.contains(x, z);
             slot.zone.setProgress(cost === null || cost <= 0 ? 1 : slot.paid / cost);
             slot.zone.setAmount(cost === null ? null : Math.max(0, Math.ceil(cost - slot.paid)));
+            slot.zone.setLocked(cost !== null && this._state.money < cost - slot.paid);
             slot.zone.update(dt);
         }
 
@@ -463,12 +471,14 @@ export class FarmScene extends Scene {
             zone.setIconVisible(!stand.isOpen);
             zone.setSolid(stand.isOpen);
             if (stand.isOpen) {
+                zone.setLocked(false);        // nothing left to buy here
                 zone.setProgress(stand.stockFullness);
                 // Money reads on the takings pad now, not here.
                 zone.setAmount(null);
             } else {
                 zone.setProgress(0);
                 zone.setAmount(Math.max(0, Math.ceil(stand.cost - stand.paid)));
+                zone.setLocked(this._state.money < stand.cost - stand.paid);
             }
             zone.update(dt);
 
@@ -527,7 +537,11 @@ export class FarmScene extends Scene {
             for (let i = 0; i < this._collectZones.length; i++) {
                 const till = this._collectZones[i];
                 if (!till.enabled || !till.occupied) continue;
-                this._shops.stands[i].collectTick(value => this._state.addMoney(value));
+                if (this._shops.stands[i].collectTick(v => this._state.addMoney(v))) {
+                    // Counted here and not in ShopStand, so a hired shopkeeper
+                    // doing the rounds never retires the player's own tutorial.
+                    this._state.takingsBanked++;
+                }
             }
         }
 
@@ -554,15 +568,30 @@ export class FarmScene extends Scene {
         store: (paid: number) => void,
         onComplete: () => void,
     ): void {
-        if (paid >= cost) return;
+        const remaining = cost - paid;
+        if (remaining <= 0) return;
+        // All or nothing. A pad the player cannot cover is locked and grey, so
+        // money is never sunk into a purchase that cannot finish — walking over
+        // a pad you cannot afford used to quietly empty the wallet into it.
+        // Checked BEFORE any time is banked, or standing on a locked pad accrues
+        // credit that clears in one frame the moment the money arrives.
+        if (Math.floor(this._state.money) < remaining) return;
 
         const rate = Math.max(60, cost / 3);   // fully paid in about three seconds
-        const want = Math.min(rate * dt, cost - paid);
-        const afford = Math.min(want, this._state.money);
-        if (afford <= 0) return;
+        // `dt` buys frame-rate independence, and that is all it is for. The
+        // charge itself is whole units: the accumulator converts a per-second
+        // rate into them, so 30Hz and 144Hz drain a pad at the same speed while
+        // `paid`, `cost` and the wallet all stay integers and the completion
+        // test below stays exact. Charging `rate * dt` directly is what left a
+        // 60-unit purchase sitting at 59.99999999999999 forever.
+        this._payAccrued = Math.min(this._payAccrued + rate * dt, rate);
 
-        this._state.trySpend(afford);
-        const next = paid + afford;
+        const units = Math.min(Math.floor(this._payAccrued), remaining);
+        if (units <= 0) return;
+        this._payAccrued -= units;
+
+        this._state.trySpend(units);
+        const next = paid + units;
         store(next);
         if (next >= cost) onComplete();
     }
@@ -591,13 +620,11 @@ export class FarmScene extends Scene {
 
         this._state.addMoney(value);
 
-        // The very first pickup is what funds the opening stand.
-        if (!this._state.shopBuilt && this._cash.count === 0) {
-            this._state.shopBuilt = true;
-            this._shops.openFirst();
-            this._zones.startCash.setEnabled(false);
-            this._state.toast('Juice stand open!');
-        }
+        // Clearing the stake retires its pad. It does NOT open the first stall:
+        // that stall has a price like every other one, and is paid for by
+        // standing on its plot. Opening it here handed the player a shop they
+        // never bought and skipped the step that teaches how the others work.
+        if (this._cash.count === 0) this._zones.startCash.setEnabled(false);
     }
 
     private _context(): FarmContext {
@@ -631,8 +658,11 @@ export class FarmScene extends Scene {
         const p = this._player;
         let next: Objective;
 
-        if (!this._state.shopBuilt) next = 'collect-start-cash';
-        else if (p.load.kind === 'bottle') next = 'sell-bottles';
+        if (!this._shops.anyOpen) {
+            // The opening sequence is two beats, not one: lift the stake off the
+            // grass, then go and pay it into the first plot.
+            next = this._cash.count > 0 ? 'collect-start-cash' : 'unlock-shop';
+        } else if (p.load.kind === 'bottle') next = 'sell-bottles';
         else if (p.load.kind === 'carrot') next = 'deliver-carrots';
         else if (this._cash.count > 0 || this._shops.tillTotal > 0) next = 'collect-earnings';
         else if (this._production.readyRackCount > 0) next = 'collect-bottles';

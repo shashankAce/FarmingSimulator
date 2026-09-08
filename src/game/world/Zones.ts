@@ -12,6 +12,13 @@ const IDLE = 0xffffff;
  */
 const SOLID = 0x000000;
 /**
+ * Fill and outline of a pad the player cannot yet afford. Grey and inert: it
+ * still shows what it is and what it costs, but standing on it does nothing and
+ * it does not light up, so there is no invitation to sink money into a purchase
+ * that cannot complete.
+ */
+const LOCKED = C.STONE;
+/**
  * The progress fill. Deliberately a blue-leaning emerald: the obvious "green"
  * for a fill bar lands right on top of the grass it is drawn over (`C.GRASS` is
  * a yellow-green) and the bar disappears into the lawn.
@@ -38,6 +45,7 @@ const AMOUNT_ON_SOLID = 0xf4f7e8;
 const C_IDLE = new THREE.Color(IDLE);
 const C_HIGHLIGHT = new THREE.Color(HIGHLIGHT);
 const C_SOLID = new THREE.Color(SOLID);
+const C_LOCKED = new THREE.Color(LOCKED);
 const C_SCRATCH = new THREE.Color();
 
 export interface ZoneOptions {
@@ -100,6 +108,7 @@ export class Zone {
     private _amount: FlatNumber | null = null;
     private _amountZ = 0;
     private _solid = false;
+    private _locked = false;
     private _glow = 0;
     private _enabled = true;
     /** Cached rotation, for the oriented containment test. */
@@ -258,6 +267,14 @@ export class Zone {
         if (this._amount) this._amount.group.position.z = on ? this._amountZ : 0;
     }
 
+    /** Greys the pad out and stops it lighting up. See `LOCKED`. */
+    setLocked(on: boolean): void {
+        this._locked = on;
+    }
+
+    /** True while the pad is showing as unaffordable. */
+    get locked(): boolean { return this._locked; }
+
     /**
      * Switches the floor fill to translucent black — how a shop pad reads once
      * it is open and its icon has been taken away. The readout flips to a pale
@@ -273,11 +290,13 @@ export class Zone {
         if (!this._enabled) return;
 
         // Ease between idle white and the highlight rather than snapping, so a
-        // pad clipped in and out of doesn't strobe.
-        const target = this.occupied ? 1 : 0;
+        // pad clipped in and out of doesn't strobe. A locked pad never lights
+        // up — the glow is the thing that says "this is doing something".
+        const target = this.occupied && !this._locked ? 1 : 0;
         this._glow += (target - this._glow) * Math.min(1, dt * 10);
 
-        const color = C_SCRATCH.copy(C_IDLE).lerp(C_HIGHLIGHT, this._glow);
+        const color = C_SCRATCH.copy(this._locked ? C_LOCKED : C_IDLE)
+            .lerp(C_HIGHLIGHT, this._glow);
         for (const m of this._edgeMats) m.color.copy(color);
         // The outline still lights up on a solid pad; only the floor stays dark,
         // otherwise an open shop gives no feedback for standing on it.

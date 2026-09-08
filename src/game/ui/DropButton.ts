@@ -1,5 +1,5 @@
 import { Button, GlobalEvents, Graphics, Label, Node, Scene, display, inputListener } from 'noonengine';
-import { FONT_FAMILY } from '../Config.ts';
+import { FONT_FAMILY, PILL } from '../Config.ts';
 
 
 /**
@@ -23,9 +23,9 @@ export class DropButton {
     private _y = 0;
     private _onDrop: () => void;
 
-    private static readonly W = 190;
-    private static readonly H = 92;
-    private static readonly STROKE = 6;
+    private static readonly W = PILL.w;
+    private static readonly H = PILL.h;
+    private static readonly STROKE = PILL.stroke;
     /** Keyboard equivalent, for playing at a desk. */
     private static readonly KEY = 'KeyQ';
 
@@ -37,14 +37,14 @@ export class DropButton {
         this._node = new Node();
         const gfx = this._node.addComponent(Graphics);
         gfx.setLineWidth(DropButton.STROKE);
-        gfx.drawRoundedRectangle(DropButton.W, DropButton.H, 26, '#8a5433', '#f2c94c');
+        gfx.drawRoundedRectangle(DropButton.W, DropButton.H, DropButton.H / 2, '#8a5433', '#f2c94c');
         this._node.zIndex = 1000;
 
         const labelNode = new Node(0, 0);
         const label = labelNode.addComponent(Label);
         label.text = 'DROP';
         label.fontFamily = FONT_FAMILY;
-        label.fontSize = 34;
+        label.fontSize = 30;
         label.fontWeight = 800;
         label.color = '#ffffff';
         label.textAlign = 'center';

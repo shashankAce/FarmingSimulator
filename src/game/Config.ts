@@ -48,6 +48,13 @@ export const GROUND_SIZE = 180;
  * `data:` URIs and only `AssetCache` resolves them at runtime.
  */
 export const FONT_FAMILY = 'Cherry Bomb One';
+
+/**
+ * Size of a HUD pill, in design pixels. Shared by the money counter and the
+ * DROP button so the two corners of the screen agree — they read as a pair, and
+ * two sets of numbers drifted apart the moment one was tuned.
+ */
+export const PILL = { w: 168, h: 58, stroke: 5 };
 export const FONT_SRC = 'res/fonts/CherryBombOne-Regular.ttf';
 
 /**

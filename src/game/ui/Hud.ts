@@ -1,14 +1,11 @@
 import { GlobalEvents, Graphics, Label, Node, Scene, display } from 'noonengine';
-import { FONT_FAMILY } from '../Config.ts';
+import { FONT_FAMILY, PILL } from '../Config.ts';
 import { C } from '../Palette.ts';
 import type { GameState, Objective } from '../GameState.ts';
 
 /** Palette entries are numbers; `Graphics` wants CSS. */
 const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
 
-/** Money pill. Sized to the counter it holds, not to the corner it sits in. */
-const PILL_W = 168;
-const PILL_H = 58;
 /** Pixels per icon unit when rebuilding the `money` pad glyph in the pill. */
 const GLYPH_UNIT = 58;
 
@@ -50,8 +47,8 @@ export class Hud {
         const pill = new Node();
         this._pill = pill;
         const pillGfx = pill.addComponent(Graphics);
-        pillGfx.setLineWidth(5);
-        pillGfx.drawRoundedRectangle(PILL_W, PILL_H, PILL_H / 2, '#5a3a22', '#c9a15e');
+        pillGfx.setLineWidth(PILL.stroke);
+        pillGfx.drawRoundedRectangle(PILL.w, PILL.h, PILL.h / 2, '#5a3a22', '#c9a15e');
         pill.zIndex = 1000;
         scene.addChild(pill);
 
@@ -198,7 +195,7 @@ export class Hud {
         const centerX = r.x + r.width / 2;
 
         // Same right margin the wider pill had.
-        this._pill.setPosition({ x: right - PILL_W / 2 - 25, y: top - 60 });
+        this._pill.setPosition({ x: right - PILL.w / 2 - 25, y: top - 60 });
         this._objWrap.setPosition({ x: centerX, y: top - 150 });
         // Sits clear of the engine's own dev FPS overlay in the bottom-left corner.
         this._stockNode.setPosition({ x: left + 24, y: bottom + 70 });

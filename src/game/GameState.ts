@@ -22,8 +22,6 @@ export class GameState {
 
     private _money = 0;
 
-    /** Set once the starting cash has been picked up. */
-    shopBuilt = false;
     /** Staff on the payroll — one of each may be hired per shop. */
     farmhands = 0;
     shopkeepers = 0;
@@ -44,19 +42,24 @@ export class GameState {
     objective: Objective = 'collect-start-cash';
 
     /**
-     * Objectives the player has actually finished (moved on FROM), not merely
-     * been shown. The ground arrow is a tutorial aid, so it retires once the
-     * core loop below has been completed once.
+     * Times the player has swept a stall's counter. This is the last beat of
+     * the loop and it implies every earlier one — there are no takings without
+     * a sale, no sale without stock, and no stock without a carrot — so one is
+     * proof of a full cycle.
      */
-    private _done = new Set<Objective>();
+    takingsBanked = 0;
 
-    private static readonly TUTORIAL: readonly Objective[] = [
-        'collect-start-cash', 'harvest-carrots', 'deliver-carrots',
-        'collect-bottles', 'sell-bottles', 'collect-earnings',
-    ];
-
+    /**
+     * The ground arrow is a tutorial aid and retires after one full cycle.
+     *
+     * Derived from an action, deliberately, rather than from a checklist of
+     * objectives the player was seen to LEAVE. That checklist never completed:
+     * `collect-earnings` is skipped whenever the counter happens to be empty at
+     * the moment the objective is recomputed — a shopper mid-celebration has
+     * not paid yet — so the flow could run start to end with the arrow still on.
+     */
     get tutorialDone(): boolean {
-        return GameState.TUTORIAL.every(step => this._done.has(step));
+        return this.takingsBanked > 0;
     }
 
     get money(): number { return this._money; }
@@ -76,8 +79,6 @@ export class GameState {
 
     setObjective(next: Objective): void {
         if (this.objective === next) return;
-        // Moving off an objective is what counts as having done it.
-        this._done.add(this.objective);
         this.objective = next;
         this.events.dispatchEvent('objective', { objective: next });
     }
