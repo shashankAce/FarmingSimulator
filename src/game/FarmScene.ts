@@ -116,10 +116,10 @@ export class FarmScene extends Scene {
         this._buildZones();
         this._buildUpgradePads();
 
-        this._cash.scatter(
+        this._cash.grid(
             STATIONS.startCash.x, STATIONS.startCash.z,
             STATIONS.startCash.w, STATIONS.startCash.d,
-            ECONOMY.startCash, 6,
+            ECONOMY.startCash, ECONOMY.startCashPiles,
         );
 
         this._player = new Player(this);

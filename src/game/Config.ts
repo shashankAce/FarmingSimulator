@@ -559,6 +559,12 @@ export const ASSISTANT = {
 export const ECONOMY = {
     /** Cash sitting on the ground at the start of the run. */
     startCash: 60,
+    /**
+     * Stacks it is split across, laid out as a grid on the `startCash` pad. A
+     * square count (4, 9) gives a square block; anything else fills the last
+     * row short.
+     */
+    startCashPiles: 6,
     /** One carrot becomes one bottle of juice. */
     bottleValue: 14,
     farmerCost: 250,

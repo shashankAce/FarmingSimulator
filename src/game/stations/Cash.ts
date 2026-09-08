@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { makeCashStack } from '../procgen/Machines.ts';
-import { rangeOf } from '../procgen/Primitives.ts';
 
 interface Pile {
     obj: THREE.Group;
@@ -9,7 +8,8 @@ interface Pile {
     t: number;
     from: THREE.Vector3;
     to: THREE.Vector3;
-    spin: number;
+    /** Bob phase only. Stacks are laid square and stay square. */
+    phase: number;
 }
 
 /**
@@ -47,15 +47,31 @@ export class CashField {
             t: 0,
             from: new THREE.Vector3(fromX, fromY, fromZ),
             to: new THREE.Vector3(x, 0.06, z),
-            spin: Math.random() * Math.PI * 2,
+            phase: Math.random() * Math.PI * 2,
         };
         obj.position.copy(pile.from);
-        obj.rotation.y = pile.spin;
+        // Square to the world and left that way. Pooled stacks carry the last
+        // angle they were given, so this has to be assigned, not just skipped.
+        obj.rotation.y = 0;
         this._piles.push(pile);
     }
 
-    /** Scatters `count` stacks over a rectangle, splitting `value` between them. */
-    scatter(cx: number, cz: number, w: number, d: number, value: number, count: number): void {
+    /**
+     * Lays `count` stacks out in a grid centred on `cx, cz`, splitting `value`
+     * between them.
+     *
+     * A grid rather than a random spill: this is the opening stake sitting on
+     * its own marked pad, and a tidy block reads as something laid out for the
+     * player to take, where a scatter read as something that had fallen over.
+     * The grid is as square as the count allows, kept inside three quarters of
+     * the pad so no stack sits on the markings.
+     */
+    grid(cx: number, cz: number, w: number, d: number, value: number, count: number): void {
+        const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+        const rows = Math.max(1, Math.ceil(count / cols));
+        const stepX = (w * 0.75) / cols;
+        const stepZ = (d * 0.75) / rows;
+
         const per = Math.max(1, Math.round(value / count));
         let left = value;
         for (let i = 0; i < count; i++) {
@@ -63,8 +79,8 @@ export class CashField {
             left -= amount;
             if (amount <= 0) break;
             this.drop(
-                cx + rangeOf(Math.random, -w / 2 * 0.75, w / 2 * 0.75),
-                cz + rangeOf(Math.random, -d / 2 * 0.75, d / 2 * 0.75),
+                cx + (i % cols - (cols - 1) / 2) * stepX,
+                cz + (Math.floor(i / cols) - (rows - 1) / 2) * stepZ,
                 amount,
             );
         }
@@ -110,11 +126,10 @@ export class CashField {
                 // Parabolic hop: lerp across, plus an arc that peaks mid-flight.
                 p.obj.position.lerpVectors(p.from, p.to, p.t);
                 p.obj.position.y += Math.sin(p.t * Math.PI) * 1.1;
-                p.obj.rotation.y = p.spin + p.t * 4;
             } else {
-                // Settled: a slow spin and gentle bob so it reads as collectable.
-                p.obj.rotation.y += dt * 1.1;
-                p.obj.position.y = 0.06 + Math.sin(performance.now() * 0.003 + p.spin) * 0.06;
+                // Settled: a gentle bob so it reads as collectable. Offset per
+                // pile, or a grid of them pulses in unison like one object.
+                p.obj.position.y = 0.06 + Math.sin(performance.now() * 0.003 + p.phase) * 0.06;
             }
         }
     }
