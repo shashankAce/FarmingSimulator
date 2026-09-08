@@ -49,6 +49,9 @@ export class GameState {
      */
     takingsBanked = 0;
 
+    /** How far through the scripted opening the player is. See `FarmScene`. */
+    tutorialStep = 0;
+
     /**
      * The ground arrow is a tutorial aid and retires after one full cycle.
      *

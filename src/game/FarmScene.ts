@@ -653,8 +653,57 @@ export class FarmScene extends Scene {
         return best;
     }
 
-    /** Derives the current objective from state, rather than tracking it imperatively. */
+    /**
+     * The scripted opening, in order.
+     *
+     * Until it is finished the objective walks this list and nothing else. The
+     * derived version below aims at whatever the game most wants NEXT, which is
+     * right for a player who knows the loop and wrong for one being taught it:
+     * standing at a stall setting a crate down, it swung to the rack stand the
+     * moment the juicer filled one, then to the takings pad the moment a shopper
+     * paid — pulling the arrow off the very thing the player was doing.
+     */
+    private static readonly TUTORIAL: ReadonlyArray<Objective> = [
+        'collect-start-cash', 'unlock-shop', 'harvest-carrots', 'deliver-carrots',
+        'collect-bottles', 'sell-bottles', 'collect-earnings',
+    ];
+
+    /** Whether a scripted step is finished, so the script can move on. */
+    private _tutorialSatisfied(step: Objective): boolean {
+        const load = this._player.load;
+        switch (step) {
+            case 'collect-start-cash': return this._cash.count === 0;
+            case 'unlock-shop': return this._shops.anyOpen;
+            case 'harvest-carrots': return load.kind === 'carrot';
+            // Both of these mean "the load is down". Each is only ever reached
+            // with something in hand, so an empty load is the step completing
+            // rather than the step never having started.
+            case 'deliver-carrots': return load.isEmpty;
+            case 'sell-bottles': return load.isEmpty;
+            case 'collect-bottles': return load.kind === 'bottle';
+            case 'collect-earnings': return this._state.takingsBanked > 0;
+            default: return true;
+        }
+    }
+
     private _refreshObjective(): void {
+        if (!this._state.tutorialDone) {
+            const script = FarmScene.TUTORIAL;
+            while (this._state.tutorialStep < script.length
+                && this._tutorialSatisfied(script[this._state.tutorialStep])) {
+                this._state.tutorialStep++;
+            }
+            const step = script[this._state.tutorialStep];
+            if (step) {
+                this._state.setObjective(step);
+                return;
+            }
+        }
+        this._state.setObjective(this._derivedObjective());
+    }
+
+    /** What the game most wants next, for a player who already knows the loop. */
+    private _derivedObjective(): Objective {
         const p = this._player;
         let next: Objective;
 
@@ -674,7 +723,7 @@ export class FarmScene extends Scene {
             else next = 'harvest-carrots';
         }
 
-        this._state.setObjective(next);
+        return next;
     }
 
     /**
@@ -695,8 +744,12 @@ export class FarmScene extends Scene {
             }
             case 'collect-earnings': {
                 // Takings pile up on the counters; loose ground cash is only the
-                // opening stake, so prefer whichever is actually waiting.
-                const stand = this._shops.nearestWithTakings(p.x, p.z);
+                // opening stake, so prefer whichever is actually waiting. Falls
+                // back to an open stall's takings pad rather than to the empty
+                // stake pad: during the script this step is reached the instant
+                // a crate goes down, often before a shopper has finished paying.
+                const stand = this._shops.nearestWithTakings(p.x, p.z)
+                    ?? this._shops.nearestOpen(p.x, p.z);
                 if (stand) return pad(stand.place.collectPad, 2.4);
                 const pile = this._cash.nearestPile(p.x, p.z);
                 return pad(pile ?? STATIONS.startCash, 2.1);
@@ -726,11 +779,16 @@ export class FarmScene extends Scene {
      * Drives both navigation cues: the flat arrow painted on the grass just
      * ahead of the player, and the marker hanging over the destination.
      *
-     * The two have different lifetimes. The hanging marker labels the current
-     * destination and stays for good. The ground arrow is a TUTORIAL aid: it
-     * retires once the player has been through the loop once, and it stays down
-     * while they're out in the crop rows, where it would be scribbling over the
-     * carrots on every objective change.
+     * Both are TUTORIAL aids and both retire together, once the player has been
+     * through the loop once. Keeping the hanging marker afterwards looked
+     * harmless and was not: past the scripted opening the objective is derived
+     * fresh each frame from whatever the game most wants next, so the marker
+     * swung between the rack stand and a takings pad while the player was busy
+     * elsewhere — the same jitter the arrow was fixed for, minus the arrow.
+     *
+     * The ground arrow additionally stays down while the player is out in the
+     * crop rows, where it would be scribbling over the carrots on every
+     * objective change.
      */
     private _updateIndicators(dt: number): void {
         this._elapsed += dt;
@@ -742,7 +800,7 @@ export class FarmScene extends Scene {
         const dist = Math.hypot(dx, dz);
         const near = dist <= 2.6;
 
-        this._dropIndicator.visible = !near;
+        this._dropIndicator.visible = !near && !this._state.tutorialDone;
 
         const guiding = !near
             && !this._state.tutorialDone

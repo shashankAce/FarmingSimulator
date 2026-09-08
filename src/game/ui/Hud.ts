@@ -7,7 +7,12 @@ import type { GameState, Objective } from '../GameState.ts';
 const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
 
 /** Pixels per icon unit when rebuilding the `money` pad glyph in the pill. */
-const GLYPH_UNIT = 58;
+const GLYPH_UNIT = 48;
+
+/** Stock panel: three stacked stats in the top-left corner. */
+const STOCK = { w: 196, h: 108, pad: 18, line: 32 };
+/** Margin from the visible rect's corners, shared by both panels. */
+const MARGIN = 22;
 
 const OBJECTIVE_TEXT: Record<Objective, string> = {
     'collect-start-cash': 'Grab the cash!',
@@ -16,7 +21,9 @@ const OBJECTIVE_TEXT: Record<Objective, string> = {
     'collect-bottles': 'Grab a rack of juice',
     'sell-bottles': 'Sell the juice at your shop',
     'collect-earnings': 'Collect your earnings',
-    'unlock-shop': 'Open another juice stand',
+    // Reads for the first stand as well as the later ones — the scripted
+    // opening now always routes through this step.
+    'unlock-shop': 'Open a juice stand',
     'expand': 'Hire a helper',
 };
 
@@ -31,14 +38,14 @@ export class Hud {
     private _moneyLabel: Label;
     private _objectiveLabel: Label;
     private _objectiveShadow: Label;
-    private _stockLabel: Label;
+    private _stockLabels: Label[] = [];
     private _toastLabel: Label;
     private _toastNode: Node;
     private _toastTimer = 0;
 
     private _pill: Node;
     private _objWrap: Node;
-    private _stockNode: Node;
+    private _stockPill: Node;
     /** Baseline Y of the toast, recomputed on resize; the rise animation offsets from it. */
     private _toastBaseY = 0;
 
@@ -52,13 +59,13 @@ export class Hud {
         pill.zIndex = 1000;
         scene.addChild(pill);
 
-        pill.addChild(Hud._moneyGlyph(-44));
+        pill.addChild(Hud._moneyGlyph(-40));
 
         const moneyNode = new Node(24, 0);
         this._moneyLabel = moneyNode.addComponent(Label);
         this._moneyLabel.text = '0';
         this._moneyLabel.fontFamily = FONT_FAMILY;
-        this._moneyLabel.fontSize = 34;
+        this._moneyLabel.fontSize = 30;
         this._moneyLabel.fontWeight = 800;
         this._moneyLabel.color = '#ffffff';
         this._moneyLabel.textAlign = 'center';
@@ -94,22 +101,33 @@ export class Hud {
             lbl.textAlign = 'center';
         }
 
-        // ── Stock readout, bottom-left ──
-        const stockNode = new Node();
-        this._stockNode = stockNode;
-        this._stockLabel = stockNode.addComponent(Label);
-        this._stockLabel.text = '';
-        this._stockLabel.fontFamily = FONT_FAMILY;
-        this._stockLabel.fontSize = 24;
-        this._stockLabel.fontWeight = 700;
-        this._stockLabel.color = '#ffffff';
-        this._stockLabel.textAlign = 'left';
-        // Anchor the node's LEFT edge, not its centre — otherwise a left-aligned
-        // label still straddles its position and runs off the visible rect.
-        stockNode.anchorX = 0;
-        this._stockLabel.dynamic = true;
-        stockNode.zIndex = 999;
-        scene.addChild(stockNode);
+        // ── Stock panel, top-left: three stats stacked, not one long line ──
+        const stockPill = new Node();
+        this._stockPill = stockPill;
+        const stockGfx = stockPill.addComponent(Graphics);
+        stockGfx.setLineWidth(PILL.stroke);
+        stockGfx.drawRoundedRectangle(STOCK.w, STOCK.h, 20, '#5a3a22', '#c9a15e');
+        stockPill.zIndex = 999;
+        scene.addChild(stockPill);
+
+        for (let i = 0; i < 3; i++) {
+            // Anchor each line's LEFT edge, not its centre — a left-aligned
+            // label still straddles its own position otherwise, so the three
+            // would step in and out as their values changed width.
+            const line = new Node(-STOCK.w / 2 + STOCK.pad, (1 - i) * STOCK.line);
+            line.anchorX = 0;
+            const label = line.addComponent(Label);
+            label.text = '';
+            label.fontFamily = FONT_FAMILY;
+            label.fontSize = 24;
+            label.fontWeight = 700;
+            label.color = '#ffffff';
+            label.textAlign = 'left';
+            // Counters change every frame they tick — bake synchronously.
+            label.dynamic = true;
+            this._stockLabels.push(label);
+            stockPill.addChild(line);
+        }
 
         // ── Toast ──
         this._toastNode = new Node();
@@ -195,10 +213,12 @@ export class Hud {
         const centerX = r.x + r.width / 2;
 
         // Same right margin the wider pill had.
-        this._pill.setPosition({ x: right - PILL.w / 2 - 25, y: top - 60 });
+        this._pill.setPosition({ x: right - PILL.w / 2 - MARGIN, y: top - PILL.h / 2 - MARGIN });
         this._objWrap.setPosition({ x: centerX, y: top - 150 });
-        // Sits clear of the engine's own dev FPS overlay in the bottom-left corner.
-        this._stockNode.setPosition({ x: left + 24, y: bottom + 70 });
+        this._stockPill.setPosition({
+            x: left + STOCK.w / 2 + MARGIN,
+            y: top - STOCK.h / 2 - MARGIN,
+        });
 
         this._toastBaseY = r.y + r.height * 0.62;
         this._toastNode.setPosition({ x: centerX, y: this._toastBaseY });
@@ -206,9 +226,15 @@ export class Hud {
 
     /** Refreshes the per-frame readouts. */
     update(dt: number, state: GameState, rackCount: number, rackCapacity: number): void {
-        const carried = state.carrotsQueued;
-        this._stockLabel.text =
-            `Hopper ${carried}    Racks ${rackCount}/${rackCapacity}    Sold ${state.totalSold}`;
+        this._stockLabels[0].text = `Hopper ${state.carrotsQueued}`;
+        this._stockLabels[1].text = `Racks ${rackCount}/${rackCapacity}`;
+        this._stockLabels[2].text = `Sold ${state.totalSold}`;
+
+        // The objective line is a tutorial aid like the two navigation cues, and
+        // retires with them: past the first full cycle it is derived fresh every
+        // frame from whatever the game most wants next, so it flickers between
+        // errands rather than instructing.
+        this._objWrap.active = !state.tutorialDone;
 
         if (this._toastTimer > 0) {
             this._toastTimer -= dt;

@@ -54,7 +54,7 @@ export const FONT_FAMILY = 'Cherry Bomb One';
  * DROP button so the two corners of the screen agree — they read as a pair, and
  * two sets of numbers drifted apart the moment one was tuned.
  */
-export const PILL = { w: 168, h: 58, stroke: 5 };
+export const PILL = { w: 140, h: 48, stroke: 4 };
 export const FONT_SRC = 'res/fonts/CherryBombOne-Regular.ttf';
 
 /**
