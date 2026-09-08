@@ -279,7 +279,20 @@ export const SHOP = {
     stockCrates: 3,
     /** From the stall origin out to the counter face. */
     counterOffset: 1.7,
+    /**
+     * Turn applied to a stall's pads ON TOP of the stall's own yaw, in DEGREES
+     * (like `CAMERA.fov`; `resolveShop` hands the callers radians).
+     *
+     * `ZONE` sizes are authored with `w` across the counter and `d` along it,
+     * while a stall's local X runs ALONG its counter — the two conventions are
+     * a quarter-turn apart, and this is what reconciles them. Without it the
+     * pads turn with the stall but land side-on to it: a 1.7-wide strip in
+     * front of a 5.0-wide counter.
+     */
+    padYawDeg: 90,
 };
+
+const DEG_TO_RAD = Math.PI / 180;
 
 interface SideVectors {
     /** Unit vector pointing out of the yard across this fence. */
@@ -304,6 +317,12 @@ export interface ShopPlacement {
     sellPad: { x: number; z: number };
     /** Where carried crates are stacked, on the counter top. */
     stockPad: { x: number; z: number };
+    /**
+     * Heading every pad of this stall is laid at, in radians — the stall's own
+     * yaw plus `SHOP.padYawDeg`. Derived once here so the zone markings, the
+     * cash grid on the takings pad and the stacks themselves cannot drift apart.
+     */
+    padYaw: number;
     /** Pad for hiring this stall's shopkeeper, on its other flank. */
     hirePad: { x: number; z: number };
     /** Where takings are swept off the counter. */
@@ -351,6 +370,7 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
     return {
         stall,
         yaw: v.yaw,
+        padYaw: v.yaw + SHOP.padYawDeg * DEG_TO_RAD,
         sellPad: off(stall, 0, -SHOP.sellDistance),
         stockPad: off(stall, SHOP.stockAlong, SHOP.stockOut),
         hirePad: off(stall, SHOP.hireAlong, -SHOP.hireInward),
@@ -521,8 +541,8 @@ export const MACHINE_UPGRADE = {
 };
 
 export const PLAYER = {
-    startX: -8,
-    startZ: 14,
+    startX: -12,
+    startZ: 4,
     speed: 9.5,
     turnSpeed: 14,
     radius: 0.7,

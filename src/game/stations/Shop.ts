@@ -224,27 +224,32 @@ export class ShopStand {
      * Where each stack of takings sits on the collect pad.
      *
      * A grid, not the old row along the counter top: the pad is nearly square,
-     * so four in a line would hang off both ends of it. Laid out on WORLD axes
-     * rather than the stall's, because the pad is axis-aligned too — inheriting
-     * the stall yaw here would sit the cash at an angle to the markings under
-     * it. Rows fill from the far edge forward, leaving the near strip to the
-     * money readout.
+     * so four in a line would hang off both ends of it.
+     *
+     * Laid out in the PAD's frame and then turned by the stall's yaw, because
+     * the pad it sits on is turned too — a world-axis grid on a rotated pad
+     * puts the cash at an angle to the markings under it. Columns run along the
+     * counter, rows step back from it.
      */
     private _tillLayout(): THREE.Vector3[] {
         const pad = this.place.collectPad;
         const cols = Math.max(1, SHOP.tillCols);
         const rows = Math.max(1, SHOP.tillRows);
         const perLayer = cols * rows;
-        const stepX = ZONE.collect.w / cols;
+        const step = ZONE.collect.w / cols;
+        const cos = Math.cos(this.place.padYaw);
+        const sin = Math.sin(this.place.padYaw);
 
         const slots: THREE.Vector3[] = [];
         for (let i = 0; i < SHOP.tillSlots; i++) {
             // Fill the grid, then start a second layer on top of the first.
             const n = i % perLayer;
+            const lx = (n % cols - (cols - 1) / 2) * step;
+            const lz = (Math.floor(n / cols) - (rows - 1) / 2) * SHOP.tillRowGap;
             slots.push(new THREE.Vector3(
-                pad.x + (n % cols - (cols - 1) / 2) * stepX,
+                pad.x + cos * lx + sin * lz,
                 Math.floor(i / perLayer) * SHOP.tillLayer,
-                pad.z + (Math.floor(n / cols) - (rows - 1) / 2) * SHOP.tillRowGap,
+                pad.z - sin * lx + cos * lz,
             ));
         }
         return slots;
@@ -274,9 +279,10 @@ export class ShopStand {
         obj.visible = true;
         obj.scale.setScalar(0.75);
         obj.position.copy(this._tillSlots[this._till.length]);
-        // Square to the grid. Pooled stacks carry the last angle they were
-        // given, so this has to be assigned rather than left alone.
-        obj.rotation.y = 0;
+        // Square to the grid, which is itself turned with the stall. Pooled
+        // stacks carry the last angle they were given, so this has to be
+        // assigned rather than left alone.
+        obj.rotation.y = this.place.padYaw;
         // Parented to the stand, not the stall: these sit on world-axis pad
         // slots and must not pick up the stall's yaw.
         this.group.add(obj);

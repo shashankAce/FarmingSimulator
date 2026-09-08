@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { C } from '../Palette.ts';
-import { at, plane } from '../procgen/Primitives.ts';
+import { at, plane, rot } from '../procgen/Primitives.ts';
 import { FlatNumber, makeFlatIcon, type IconKind } from '../procgen/Icons.ts';
 
 /** Colour the outline and fill snap to while somebody is standing on the pad. */
@@ -57,6 +57,17 @@ export interface ZoneOptions {
      */
     iconX?: number;
     iconZ?: number;
+    /**
+     * Turns the whole marker — outline, fill, progress, icon and readout — as
+     * one piece, the same `rot(g, 0, yaw, 0)` the stall itself gets, so a pad
+     * belonging to a stall squares up with the counter it serves instead of
+     * with the world axes. Defaults to 0, which is what a free-standing pad on
+     * open grass wants.
+     *
+     * With a yaw, `w` and `d` are read in the pad's OWN frame: `w` runs along
+     * its face and `d` is its depth. Pass the stall's `place.yaw`.
+     */
+    yaw?: number;
 }
 
 /**
@@ -91,6 +102,9 @@ export class Zone {
     private _solid = false;
     private _glow = 0;
     private _enabled = true;
+    /** Cached rotation, for the oriented containment test. */
+    private _cos = 1;
+    private _sin = 0;
 
     constructor(name: string, x: number, z: number, w: number, d: number, opts: ZoneOptions = {}) {
         this.name = name;
@@ -191,15 +205,28 @@ export class Zone {
             g.add(this._amount.group);
         }
 
-        at(g, x, 0, z);
+        const yaw = opts.yaw ?? 0;
+        this._cos = Math.cos(yaw);
+        this._sin = Math.sin(yaw);
+        // Rotate BEFORE positioning, and not a moment earlier: the readout
+        // above measures the icon's bounds in this group's local frame, which a
+        // rotation already applied would have thrown off.
+        at(rot(g, 0, yaw, 0), x, 0, z);
         this.marker = g;
     }
 
-    /** Axis-aligned containment test in world XZ. */
+    /**
+     * Containment test in the pad's own frame — the trigger has to turn with
+     * the markings, or a rotated pad catches the player somewhere other than
+     * where it is painted. Reduces to the axis-aligned test at yaw 0.
+     */
     contains(px: number, pz: number): boolean {
-        return this._enabled
-            && Math.abs(px - this.x) <= this.halfW
-            && Math.abs(pz - this.z) <= this.halfD;
+        if (!this._enabled) return false;
+        const dx = px - this.x;
+        const dz = pz - this.z;
+        const lx = this._cos * dx - this._sin * dz;
+        const lz = this._sin * dx + this._cos * dz;
+        return Math.abs(lx) <= this.halfW && Math.abs(lz) <= this.halfD;
     }
 
     distanceTo(px: number, pz: number): number {

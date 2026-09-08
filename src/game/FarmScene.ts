@@ -313,9 +313,11 @@ export class FarmScene extends Scene {
 
         // One pad per stand: construction site while locked, serving pad once open.
         for (const stand of this._shops.stands) {
+            // `place.padYaw` is the stall's own yaw plus the quarter-turn that
+            // reconciles the pad's authoring convention with it — see Config.
             const zone = new Zone(
                 `shop${stand.index}`, stand.sellPad.x, stand.sellPad.z, ZONE.shop.w, ZONE.shop.d,
-                { icon: 'shop', showProgress: true, showAmount: true },
+                { icon: 'shop', showProgress: true, showAmount: true, yaw: stand.place.padYaw },
             );
             this._shopZones.push(zone);
             sys.scene.add(zone.marker);
@@ -328,7 +330,7 @@ export class FarmScene extends Scene {
                 // Icon only. The cash physically stacked on this pad already
                 // says how much is waiting and how full it is, so a fill bar
                 // and a total would be the same fact told three times.
-                { icon: 'money' },
+                { icon: 'money', yaw: stand.place.padYaw },
             );
             till.setEnabled(false);
             this._collectZones.push(till);
@@ -361,9 +363,13 @@ export class FarmScene extends Scene {
             pos: { x: number; z: number },
             icon: IconKind,
             slot: Omit<UpgradeSlot, 'zone' | 'paid'>,
+            // A stall's slot turns with that stall; the free-standing ones — the
+            // farmhand pads and the juicer tier — sit on open grass with nothing
+            // to align to, so they keep world axes.
+            yaw = 0,
         ): UpgradeSlot => {
             const zone = new Zone(`slot${this._slots.length}`, pos.x, pos.z,
-                ZONE.hire.w, ZONE.hire.d, { icon, showProgress: true, showAmount: true });
+                ZONE.hire.w, ZONE.hire.d, { icon, showProgress: true, showAmount: true, yaw });
             sys.scene.add(zone.marker);
 
             const full: UpgradeSlot = { ...slot, zone, paid: 0 };
@@ -399,7 +405,7 @@ export class FarmScene extends Scene {
                     this._shopkeepers.push(new SellerAssistant(this, this._context(), i));
                     this._state.toast('Shopkeeper hired!');
                 },
-            });
+            }, stand.place.padYaw);
         });
 
         // ── Juicer speed, repeatable through the tier table ──
