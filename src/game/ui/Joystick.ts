@@ -62,6 +62,11 @@ export class Joystick {
         inputListener.off(Input.POINTER_CANCEL, this._onUp);
     }
 
+    // Only the camera pan asked whether the stick was busy, and the pan is not
+    // part of the game. Kept for whoever needs it next:
+    // /** True while a pointer is steering. */
+    // get active(): boolean { return this._active; }
+
     /** Folds the keyboard fallback in, so callers only read `x`/`y`. */
     update(): void {
         if (this._active) return;
@@ -80,6 +85,9 @@ export class Joystick {
     private _onDown = (e: PointerInputEvent): void => {
         if (this._active) return;
         if (this._blocked(e.x, e.y)) return;
+        // Existed only to leave right/middle drags to the camera pan, which the
+        // game does not have — so every button steers again, as it did before:
+        // if (e.button !== 0) return;
         this._active = true;
         this._pointerId = e.pointer.id;
         this._originX = e.x;

@@ -545,18 +545,33 @@ export const VILLAGE = {
     /** Cattle graze in the western pasture. */
     cattle: { count: 5, minOut: 14, maxOut: 26, zFrom: -6, zTo: 16 },
 
-    /** Seeded scatter: how many, and how far outside the fence they may land. */
+    /**
+     * Seeded scatter: how many, and the closest they may land to the fence.
+     *
+     * There is no outer bound here any more — `visibleBounds()` is the outer
+     * bound, so decoration lands where it can be seen and nowhere else. The
+     * counts came DOWN with it, in proportion to the area removed, so the
+     * village keeps the density it was tuned at instead of the same scenery
+     * crowding into a smaller space.
+     *
+     * Against the ring the scatter originally filled, the envelope is 46%; the
+     * flat cover's old square, 35%. Two things shrank it: the camera is fixed
+     * to the player, and it is TILTED — it sees 23 units past the player
+     * up-screen but only 10 behind, where the old `maxPad: 40-46` decorated
+     * both ends alike. In X those pads were almost exactly right, since the
+     * camera really does reach 32 units to each side.
+     */
     scatter: {
-        trees: { count: 46, minPad: 5, maxPad: 46, floweringChance: 0.25 },
-        bushes: { count: 40, minPad: 2, maxPad: 40 },
-        rocks: { count: 18, minPad: 2, maxPad: 44 },
-        props: { count: 7, minPad: 6, maxPad: 20 },
+        trees: { count: 21, minPad: 5, floweringChance: 0.25 },
+        bushes: { count: 18, minPad: 2 },
+        rocks: { count: 8, minPad: 2 },
+        props: { count: 3, minPad: 6 },
         /** Flowers and tufts are flat, so they are allowed inside the fence too. */
-        groundCover: { count: 130, spread: 75 },
+        groundCover: { count: 46 },
     },
 
     /** Broad tonal discs that break up the flat green. */
-    grassPatches: { count: 30, minR: 2.5, maxR: 6.0, spread: 70 },
+    grassPatches: { count: 10, minR: 2.5, maxR: 6.0 },
 };
 
 /**
@@ -608,6 +623,47 @@ export const MACHINE_UPGRADE = {
  * character has to hold the same crate, not a bigger one.
  */
 export const CHARACTER = { scale: 1.35 };
+
+/**
+ * ─── GRAPHICS ────────────────────────────────────────────────────────────────
+ * Settings that trade looks for frame rate.
+ */
+export const GRAPHICS = {
+    /**
+     * Cast shadows from the sun.
+     *
+     * OFF: the shadow pass renders the whole scene a second time into a
+     * `shadowMapSize`-squared depth map every frame, which on a low-end mobile
+     * GPU costs more than everything the game does on the CPU. Note that a CPU
+     * throttle in devtools does not measure this at all — it slows JS, not fill
+     * rate — so this is the setting to try first when a phone is slow but a
+     * throttled desktop is not.
+     *
+     * Turning it back on needs nothing else: the meshes all still declare
+     * `castShadow`, which costs nothing while no light casts.
+     */
+    shadows: false,
+    /** Resolution of the sun's shadow map, when shadows are on. */
+    shadowMapSize: 2048,
+    /**
+     * Merge the static scenery into a few meshes at startup — see
+     * `world/MergeStatic.ts`.
+     *
+     * Kept as a switch so the win is measurable: turn it off, read the draw
+     * call count off the debug panel, turn it on, read it again. Nothing about
+     * the scene looks different either way.
+     */
+    mergeStatic: true,
+    /**
+     * Size of the XZ tile the merge buckets by, in world units.
+     *
+     * The trade-off, in one number: one draw call per material per VISIBLE
+     * tile. Bigger tiles collapse more into each call but drop more
+     * off-screen geometry into a bucket that is on screen, and so gets drawn.
+     * Around the width of what the camera can see is the sweet spot.
+     */
+    mergeTile: 24,
+};
 
 export const PLAYER = {
     startX: -12,
@@ -788,6 +844,134 @@ export const CAMERA = {
 };
 
 /**
+ * The rectangle the gameplay camera can ever show, in world XZ — and therefore
+ * exactly how far the village has to be decorated.
+ *
+ * DERIVED, because it is not guessable. The camera looks down at 50 degrees, so
+ * its footprint on the ground is a trapezoid, not the frustum cross-section:
+ * measured from the player it reaches 23 units PAST them up-screen but only 10
+ * below, and 32 to each side at the far edge. Add the yard the player can walk
+ * in and the leash the view can be dragged on, and that is the whole of what a
+ * player can be shown.
+ *
+ * Everything decorative is placed inside this and nowhere else. Scenery beyond
+ * it cannot be reached by any camera the game ships — only by the debug
+ * overview — and is pure draw calls.
+ *
+ * The `CAMERA` offsets and fov are what move it. Change them and the scatter
+ * follows, which is the point of computing it here rather than writing the
+ * numbers into `VILLAGE.scatter` by hand.
+ */
+export function visibleBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+    const halfV = (CAMERA.fov * Math.PI) / 360;
+    // Angle the optical axis makes with the ground.
+    const pitch = Math.atan2(CAMERA.offsetY, CAMERA.offsetZ);
+    // Where the top and bottom edges of the frame meet the ground, measured
+    // from the point under the camera. A camera tilted so far up that its top
+    // edge clears the horizon would reach infinity, so that case takes the
+    // ground plane as its limit instead.
+    const reachFar = pitch - halfV > 0.02
+        ? CAMERA.offsetY / Math.tan(pitch - halfV)
+        : GROUND_SIZE / 2;
+    const reachNear = CAMERA.offsetY / Math.tan(pitch + halfV);
+    // Half-width at the far edge: the far corner's distance along the optical
+    // axis, times the horizontal half-angle.
+    const halfW = Math.hypot(CAMERA.offsetY, reachFar)
+        * Math.cos(halfV) * Math.tan(halfV) * (GAME_WIDTH / GAME_HEIGHT);
+
+    // With a pannable camera each of these also carried `+ PAN.maxRadius`: a
+    // view that can be dragged reaches further, so more of the village has to
+    // be decorated. The camera is fixed to the player now, so it does not.
+    const out = halfW + VISIBLE_MARGIN;
+    return {
+        minX: YARD.minX - out,
+        maxX: YARD.maxX + out,
+        minZ: YARD.minZ + (CAMERA.offsetZ - reachFar) - VISIBLE_MARGIN,
+        maxZ: YARD.maxZ + (CAMERA.offsetZ - reachNear) + VISIBLE_MARGIN,
+    };
+}
+
+/** Slack past the last visible pixel, so nothing pops in at the frame edge. */
+const VISIBLE_MARGIN = 2;
+
+/**
+ * ─── DEBUG OVERVIEW ──────────────────────────────────────────────────────────
+ * A near-plan view of the whole world, for looking at what is actually in the
+ * scene rather than playing it. Toggled with V, DEBUG only.
+ *
+ * `height` is chosen from the camera's own field of view: at 52 degrees a
+ * camera sees `0.975 * height` world units vertically, so 150 frames about
+ * 146 x 260 — enough for the 180-unit ground plane and everything scattered on
+ * it. The village straddles the origin, so that is where it looks.
+ */
+export const OVERVIEW = {
+    height: 100,
+    /** Tilted back a little rather than straight down: stacks and crate piles
+     *  read as stacks, where a flat plan view flattens them into their bases. */
+    tiltBack: 18,
+    center: { x: 0, z: 0 },
+};
+
+// ─── CAMERA PAN (dropped) ────────────────────────────────────────────────────
+// Drag-to-look was built, tried and decided against — the game keeps its fixed
+// follow camera. Kept commented rather than deleted; `ui/CameraPan.ts` has the
+// controller and the four steps to bring it back.
+//
+// /**
+//  * ─── CAMERA PAN ──────────────────────────────────────────────────────────────
+//  * Drag-to-look. See `ui/CameraPan.ts` for which pointer counts as a pan.
+//  *
+//  * NOT WIRED IN. It was built, tried, and decided against; the controller and
+//  * this block are both kept, and the wiring in `FarmScene` is commented out
+//  * rather than deleted, so it can be brought back by uncommenting.
+//  *
+//  * `maxRadius` still does something while it is off, which is the one trap
+//  * here: `visibleBounds()` adds it to the ground the village has to be
+//  * decorated over. With no pan there is no reason to decorate for one — see the
+//  * note on `maxRadius` itself.
+//  */
+// export const PAN = {
+//     /**
+//      * World units the ground travels per design pixel of drag, so the scenery
+//      * keeps up with the finger instead of sliding under it.
+//      *
+//      * DERIVED from the camera rather than dialled in: the ground is
+//      * `hypot(offsetY, offsetZ)` away along the view axis, and a perspective
+//      * camera shows `2 * d * tan(fov/2)` of it across `GAME_HEIGHT` pixels.
+//      * Moving the camera changes the answer, and a hand-tuned constant would
+//      * quietly stop matching.
+//      */
+//     worldPerPixel:
+//         (2 * Math.hypot(CAMERA.offsetY, CAMERA.offsetZ) * Math.tan((CAMERA.fov * Math.PI) / 360))
+//         / GAME_HEIGHT,
+//     /**
+//      * How far from the player the view may be dragged, in world units.
+//      *
+//      * This is also the game's world-size dial, which is not obvious: every unit
+//      * of leash is a unit of village that has to be decorated, because
+//      * `visibleBounds()` grows with it and the scatter fills that. At 22 the
+//      * envelope came to 105% of the scenery already in the scene — nothing could
+//      * be trimmed. At 12 it is 75%, and 12 world units is still 400px of drag.
+//      *
+//      * LEFT AT 12 with the pan unwired, so the village looks exactly as it was
+//      * tuned. It is now 12 units of scenery decorated for a camera that cannot
+//      * reach it: dropping it to 0 shrinks the envelope to 46% of the original
+//      * ring, which is worth roughly another third off the scatter counts —
+//      * a deliberate second pass, not a side effect of switching a feature off.
+//      */
+//     maxRadius: 12,
+//     /**
+//      * Seconds the view stays where it was put after the finger lifts.
+//      *
+//      * Not zero: a glance at your stall that is yanked back the instant you let
+//      * go reads as the game fighting you. Walking cancels it early.
+//      */
+//     linger: 0.45,
+//     /** How quickly it eases home afterwards. Higher = snappier. */
+//     returnLerp: 3.2,
+// };
+
+/**
  * Dev-only sanity check on the layout constants above. Called from `FarmScene`
  * under `DEBUG`, so a bad edit surfaces as a console warning on the next reload
  * instead of as a station you can't reach or a field that hangs over the fence.
@@ -825,6 +1009,15 @@ export function validateLayout(): void {
     }
     if (!inside(MACHINE_UPGRADE.pad.x, MACHINE_UPGRADE.pad.z)) {
         warn('MACHINE_UPGRADE.pad is outside YARD.');
+    }
+
+    // The decorated area has to fit on the ground plane, or the player pans to
+    // the frame edge and sees past the world into the void.
+    const vis = visibleBounds();
+    const half = GROUND_SIZE / 2;
+    if (vis.minX < -half || vis.maxX > half || vis.minZ < -half || vis.maxZ > half) {
+        warn('visibleBounds() reaches past the ground plane — raise GROUND_SIZE, '
+            + 'or lower PAN.maxRadius / the CAMERA offsets.');
     }
 
     // The production line moves as one, so check both of its ends.

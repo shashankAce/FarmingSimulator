@@ -3,13 +3,14 @@ import { DEBUG, Input, Node, Scene, display, inputListener } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
 import {
-    BLOCKERS, CAMERA, ECONOMY, HARVEST, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, STATIONS, YARD,
-    ZONE, farmhandPads, validateLayout,
+    BLOCKERS, CAMERA, ECONOMY, GRAPHICS, HARVEST, HIRE, MACHINE, MACHINE_UPGRADE, OVERVIEW, PLAYER,
+    STATIONS, YARD, ZONE, farmhandPads, validateLayout,
 } from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
 
 import { at, rot } from './procgen/Primitives.ts';
+import { mergeStatic } from './world/MergeStatic.ts';
 import type { IconKind } from './procgen/Icons.ts';
 
 import { buildEnvironment } from './world/Environment.ts';
@@ -28,6 +29,10 @@ import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/A
 import { Hud } from './ui/Hud.ts';
 import { Stats3D } from './debug/Stats3D.ts';
 import { Joystick } from './ui/Joystick.ts';
+// Camera pan: built and tested, decided against for the game. Kept whole in
+// `ui/CameraPan.ts` — the wiring below is commented rather than deleted so it
+// can be put back by uncommenting, not rewritten. See also `PAN` in Config.
+// import { CameraPan } from './ui/CameraPan.ts';
 import { DropButton } from './ui/DropButton.ts';
 
 /** A purchasable pad: hiring staff, or a machine tier. */
@@ -63,6 +68,7 @@ export class FarmScene extends Scene {
     private _cash!: CashField;
     private _hud!: Hud;
     private _joystick!: Joystick;
+    // private _pan!: CameraPan;
     private _dropButton!: DropButton;
 
     private _camera!: Camera3D;
@@ -89,6 +95,8 @@ export class FarmScene extends Scene {
      * one, and a sub-unit carry-over between them is beneath notice.
      */
     private _payAccrued = 0;
+    /** Whole-world plan view, DEBUG only. Toggled with V. */
+    private _overview = false;
     /** 3D render stats, DEBUG only. Toggled with P. */
     private _stats3D: Stats3D | null = null;
     /** Collider overlay, DEBUG only. Toggled with C. */
@@ -102,7 +110,7 @@ export class FarmScene extends Scene {
         sys.scene.fog = new THREE.Fog(SKY, 70, 165);
 
         sys.onRendererReady = (renderer) => {
-            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.enabled = GRAPHICS.shadows;
             renderer.shadowMap.type = THREE.PCFShadowMap;   // PCFSoft is deprecated in three 0.185
             // The renderer is created lazily on the first 3D frame, so this is
             // the only place its `info` can be got hold of.
@@ -112,18 +120,32 @@ export class FarmScene extends Scene {
         this._buildCamera();
         this._buildLights();
 
-        sys.scene.add(buildEnvironment());
+        // Named for the census in `debug/Stats3D.ts` — an unnamed group shows up
+        // there as "Group", which tells you nothing about what is costing what.
+        const env = buildEnvironment();
+        env.name = 'environment';
+        // The village is the bulk of the draw calls in the game and none of it
+        // ever moves, which is exactly what `mergeStatic` is for.
+        sys.scene.add(GRAPHICS.mergeStatic ? mergeStatic(env, GRAPHICS.mergeTile) : env);
 
         this._field = new CarrotField(this);
-        sys.scene.add(this._field.ground);
+        this._field.ground.name = 'field';
+        // The beds are static too — only the carrots in them change, and those
+        // are two instanced meshes the merge leaves alone.
+        sys.scene.add(GRAPHICS.mergeStatic
+            ? mergeStatic(this._field.ground, GRAPHICS.mergeTile)
+            : this._field.ground);
 
         this._cash = new CashField();
+        this._cash.group.name = 'cash';
         sys.scene.add(this._cash.group);
 
         this._production = new Production(this._state);
+        this._production.group.name = 'production';
         sys.scene.add(this._production.group);
 
         this._shops = new ShopRow(this, this._state, this._cash);
+        this._shops.group.name = 'shops';
         sys.scene.add(this._shops.group);
 
         this._buildObstacles();
@@ -145,6 +167,10 @@ export class FarmScene extends Scene {
         // Built before the stick so the stick can be told to ignore its taps.
         this._dropButton = new DropButton(this, () => this._dropCarriedLoad());
         this._joystick = new Joystick(this, (x, y) => this._dropButton.hits(x, y));
+        // Given the same button exclusion as the stick, so a second finger
+        // reaching for "put it down" does not drag the view as well.
+        // this._pan = new CameraPan(
+        //     () => this._joystick.active, (x, y) => this._dropButton.hits(x, y));
         this._hud = new Hud(this, this._state);
 
         this._state.toast('Collect the cash!');
@@ -167,6 +193,8 @@ export class FarmScene extends Scene {
                 teleport: (x: number, z: number) => { this._player.x = x; this._player.z = z; },
                 toggleColliders: () => this._toggleColliders(),
                 toggleStats: () => this._stats3D?.toggle(),
+                census: () => this._stats3D?.census(),
+                overview: () => this._toggleOverview(),
             };
         }
     }
@@ -176,36 +204,51 @@ export class FarmScene extends Scene {
         // The RAW delta, not `step`: a clamped one would report a steady 20fps
         // as the floor however badly the game was actually hitching.
         this._stats3D?.update(dt);
+        // Phase markers, DEBUG only and no-ops without the panel. Each `mark`
+        // charges the time since the previous one to that label, so the labels
+        // add up to the game's own share of the frame.
+        this._stats3D?.frame();
 
         this._joystick.update();
         this._dropButton.update();
         this._dropButton.setVisible(!this._player.load.isEmpty);
         this._player.updateWithInput(step, this._joystick);
+        this._stats3D?.mark('player');
 
         this._transferTimer += step;
         const canTransfer = this._transferTimer >= MACHINE.transferInterval;
         if (canTransfer) this._transferTimer = 0;
 
         this._updateZones(step);
+        this._stats3D?.mark('zones');
         this._handlePlayerActions(step, canTransfer);
         this._collectCashUnderfoot();
+        this._stats3D?.mark('actions');
 
         this._field.update(step);
+        this._stats3D?.mark('field');
         this._production.update(step);
+        this._stats3D?.mark('prod');
         this._shops.update(step);
+        this._stats3D?.mark('shops');
         this._cash.update(step);
+        this._stats3D?.mark('cash');
 
         for (const a of this._farmhands) a.update(step);
         for (const a of this._shopkeepers) a.update(step);
+        this._stats3D?.mark('staff');
 
         this._refreshObjective();
         this._updateIndicators(step);
+        // this._pan.update(step);
         this._updateCamera(step);
         this._shops.updateBubbles(this.sceneSystem3D);
+        this._stats3D?.mark('camera+ui');
 
         if (this._playerRing) this._playerRing.position.set(this._player.x, 0, this._player.z);
 
         this._hud.update(step, this._state, this._production.rackCount, this._production.rackCapacity);
+        this._stats3D?.mark('hud');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -249,8 +292,12 @@ export class FarmScene extends Scene {
         this._sun.position.set(PLAYER.startX + 18, 34, PLAYER.startZ + 12);
 
         const light = this._sun.light;
-        light.castShadow = true;
-        light.shadow.mapSize.set(2048, 2048);
+        // Left off rather than configured-then-disabled: with `castShadow`
+        // false, Three never allocates the depth map at all.
+        light.castShadow = GRAPHICS.shadows;
+        if (!GRAPHICS.shadows) return;
+
+        light.shadow.mapSize.set(GRAPHICS.shadowMapSize, GRAPHICS.shadowMapSize);
         const cam = light.shadow.camera as THREE.OrthographicCamera;
         cam.left = -34; cam.right = 34;
         cam.top = 34; cam.bottom = -34;
@@ -271,6 +318,8 @@ export class FarmScene extends Scene {
         inputListener.on(Input.KEY_DOWN, (e: { code: string }) => {
             if (e.code === 'KeyC') this._toggleColliders();
             if (e.code === 'KeyP') this._stats3D?.toggle();
+            if (e.code === 'KeyO') this._stats3D?.census();
+            if (e.code === 'KeyV') this._toggleOverview();
         });
     }
 
@@ -279,6 +328,21 @@ export class FarmScene extends Scene {
      * footprints change shape at runtime (a locked plot becomes a counter).
      * A stale overlay is worse than none — it lies about where the walls are.
      */
+    /**
+     * Pulls the camera up to a plan view of the whole world, and back.
+     *
+     * The follow is skipped entirely while it is on, so the player can still be
+     * driven around underneath it. Panning keeps working, which is how you
+     * shift the overview off centre.
+     */
+    private _toggleOverview(): void {
+        this._overview = !this._overview;
+        // eslint-disable-next-line no-console
+        console.log(this._overview
+            ? `overview on — camera at y=${OVERVIEW.height}. O for the item census, V to go back.`
+            : 'overview off');
+    }
+
     private _toggleColliders(): void {
         if (this._colliderView) {
             this.sceneSystem3D.scene.remove(this._colliderView);
@@ -879,9 +943,21 @@ export class FarmScene extends Scene {
         const cam = this._camera;
         if (!cam.position) return;
 
-        const targetX = p.x + CAMERA.offsetX;
-        const targetY = CAMERA.offsetY;
-        const targetZ = p.z + CAMERA.offsetZ;
+        // Looking at the whole world instead of at the player: fixed over the
+        // village, follow skipped.
+        const overX = OVERVIEW.center.x;
+        const overZ = OVERVIEW.center.z;
+
+        // With the pan wired in, its offset was added to each of these — it
+        // rode on top of the follow target so the view slid off the player
+        // without changing where it points:
+        //     const targetX = ... + this._pan.x;
+        //     const targetZ = ... + this._pan.z;
+        // and the lerp went to 1 while dragging (`this._pan.active`), because
+        // at the follow rate a drag feels like it is going through treacle.
+        const targetX = this._overview ? overX : p.x + CAMERA.offsetX;
+        const targetY = this._overview ? OVERVIEW.height : CAMERA.offsetY;
+        const targetZ = this._overview ? overZ + OVERVIEW.tiltBack : p.z + CAMERA.offsetZ;
         const k = Math.min(1, CAMERA.lerp * dt);
 
         cam.position.set(
@@ -889,12 +965,17 @@ export class FarmScene extends Scene {
             cam.position.y + (targetY - cam.position.y) * k,
             cam.position.z + (targetZ - cam.position.z) * k,
         );
-        cam.lookAt(cam.position.x - CAMERA.offsetX, 0, cam.position.z - CAMERA.offsetZ);
+        if (this._overview) cam.lookAt(overX, 0, overZ);
+        else cam.lookAt(cam.position.x - CAMERA.offsetX, 0, cam.position.z - CAMERA.offsetZ);
 
-        // Keep the shadow frustum centred on the player so the 2048² map stays tight.
-        this._sun.position.set(p.x + 18, 34, p.z + 12);
-        this._sun.target.position.set(p.x, 0, p.z);
-        this._sun.target.updateMatrixWorld();
+        // Keep the shadow frustum centred on the player so the map stays tight.
+        // Pointless work with no shadow to fit, and the sun is directional, so
+        // where it sits makes no difference to the lighting itself.
+        if (GRAPHICS.shadows) {
+            this._sun.position.set(p.x + 18, 34, p.z + 12);
+            this._sun.target.position.set(p.x, 0, p.z);
+            this._sun.target.updateMatrixWorld();
+        }
     }
 
 }

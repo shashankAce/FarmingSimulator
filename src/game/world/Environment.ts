@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GROUND_SIZE, VILLAGE, YARD } from '../Config.ts';
+import { GROUND_SIZE, VILLAGE, YARD, visibleBounds } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, disc, makeRng, plane, rangeOf, rot, scl } from '../procgen/Primitives.ts';
 import { makeBush, makeCobblePath, makeFlower, makeGrassTuft, makeRock, makeTree } from '../procgen/Nature.ts';
@@ -20,6 +20,10 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
     const rng = makeRng(seed);
     const world = new THREE.Group();
     const V = VILLAGE;
+    // Everything scattered below lands inside this and nowhere else: it is the
+    // ground the shipped cameras can reach, so anything outside it is scenery
+    // no player will ever be shown.
+    const vis = visibleBounds();
 
     const solid = (o: THREE.Object3D) => {
         o.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
@@ -41,8 +45,7 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
         // punch un-shadowed holes through anything cast onto the grass.
         patch.receiveShadow = true;
         patch.castShadow = false;
-        const sp = V.grassPatches.spread;
-        at(patch, rangeOf(rng, -sp, sp), 0.015, rangeOf(rng, -sp, sp));
+        at(patch, rangeOf(rng, vis.minX, vis.maxX), 0.015, rangeOf(rng, vis.minZ, vis.maxZ));
         scl(patch, 1, 1, rangeOf(rng, 0.65, 1.35));
         rot(patch, 0, rng() * Math.PI, 0);
         world.add(patch);
@@ -81,7 +84,7 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
 
     // ── Loose clutter ────────────────────────────────────────────────────────
     for (let i = 0; i < V.scatter.props.count; i++) {
-        const [x, z] = sampleOutside(rng, V.scatter.props.minPad, V.scatter.props.maxPad);
+        const [x, z] = sampleOutside(rng, vis, V.scatter.props.minPad);
         const prop = rng() < 0.5 ? makeBarrel() : makeCrate(rangeOf(rng, 0.7, 1.05));
         solid(at(rot(prop, 0, rng() * Math.PI, 0), x, 0, z));
     }
@@ -95,18 +98,18 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
 
     // ── Trees, bushes, rocks and flowers scattered outside the fence ─────────
     for (let i = 0; i < V.scatter.trees.count; i++) {
-        const [x, z] = sampleOutside(rng, V.scatter.trees.minPad, V.scatter.trees.maxPad);
+        const [x, z] = sampleOutside(rng, vis, V.scatter.trees.minPad);
         const tree = makeTree(rng, { flowering: rng() < V.scatter.trees.floweringChance });
         solid(at(rot(scl(tree, rangeOf(rng, 0.8, 1.25)), 0, rng() * Math.PI, 0), x, 0, z));
     }
 
     for (let i = 0; i < V.scatter.bushes.count; i++) {
-        const [x, z] = sampleOutside(rng, V.scatter.bushes.minPad, V.scatter.bushes.maxPad);
+        const [x, z] = sampleOutside(rng, vis, V.scatter.bushes.minPad);
         solid(at(makeBush(rng), x, 0, z));
     }
 
     for (let i = 0; i < V.scatter.rocks.count; i++) {
-        const [x, z] = sampleOutside(rng, V.scatter.rocks.minPad, V.scatter.rocks.maxPad);
+        const [x, z] = sampleOutside(rng, vis, V.scatter.rocks.minPad);
         world.add(at(makeRock(rng), x, 0, z));
     }
 
@@ -115,7 +118,7 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
     const gc = V.scatter.groundCover;
     for (let i = 0; i < gc.count; i++) {
         const d = rng() < 0.55 ? makeFlower(rng) : makeGrassTuft(rng);
-        at(d, rangeOf(rng, -gc.spread, gc.spread), 0, rangeOf(rng, -gc.spread, gc.spread));
+        at(d, rangeOf(rng, vis.minX, vis.maxX), 0, rangeOf(rng, vis.minZ, vis.maxZ));
         world.add(d);
     }
 
@@ -123,13 +126,21 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
 }
 
 /**
- * Picks a point outside the fenced yard, between `minPad` and `maxPad` units
- * beyond it, so decoration never lands where the player walks.
+ * Picks a point inside `vis` but at least `minPad` outside the fenced yard, so
+ * decoration lands where it can be seen and never where the player walks.
+ *
+ * The outer bound is the visible envelope rather than a per-entry `maxPad`:
+ * there is one answer to "how far out is worth decorating" and it belongs to
+ * the camera, not to trees and bushes separately.
  */
-function sampleOutside(rng: () => number, minPad: number, maxPad: number): [number, number] {
+function sampleOutside(
+    rng: () => number,
+    vis: { minX: number; maxX: number; minZ: number; maxZ: number },
+    minPad: number,
+): [number, number] {
     for (let attempt = 0; attempt < 24; attempt++) {
-        const x = rangeOf(rng, YARD.minX - maxPad, YARD.maxX + maxPad);
-        const z = rangeOf(rng, YARD.minZ - maxPad, YARD.maxZ + maxPad);
+        const x = rangeOf(rng, vis.minX, vis.maxX);
+        const z = rangeOf(rng, vis.minZ, vis.maxZ);
         const dx = Math.max(YARD.minX - x, 0, x - YARD.maxX);
         const dz = Math.max(YARD.minZ - z, 0, z - YARD.maxZ);
         const outside = Math.max(dx, dz);
