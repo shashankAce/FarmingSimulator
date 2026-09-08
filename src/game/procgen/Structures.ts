@@ -216,7 +216,7 @@ export function makeCow(rng: () => number): THREE.Group {
  * game's steep top-down camera it just becomes a lid hiding the entire counter —
  * the reference stall is open for exactly that reason.
  */
-export function makeShop(): { group: THREE.Group; cashSlots: THREE.Vector3[] } {
+export function makeShop(): THREE.Group {
     const g = new THREE.Group();
 
     // Counter body, with a painted front panel facing the queue.
@@ -256,13 +256,9 @@ export function makeShop(): { group: THREE.Group; cashSlots: THREE.Vector3[] } {
         g.add(carrot);
     }
 
-    // ── Till slots: where completed orders stack up as cash ──
-    const cashSlots: THREE.Vector3[] = [];
-    for (let i = 0; i < 4; i++) {
-        cashSlots.push(new THREE.Vector3(0.55 + i * 0.62, 1.36, 1.1));
-    }
-
-    return { group: g, cashSlots };
+    // Takings do NOT stack on this counter — they land on the stall's collect
+    // pad instead, so banking them is a walk. See `ShopStand._tillLayout`.
+    return g;
 }
 
 /**

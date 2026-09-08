@@ -319,9 +319,10 @@ export class FarmScene extends Scene {
             const till = new Zone(
                 `till${stand.index}`, stand.place.collectPad.x, stand.place.collectPad.z,
                 ZONE.collect.w, ZONE.collect.d,
-                // Dead centre: the banknote is short enough that the readout
-                // still clears it without the usual lift.
-                { icon: 'money', showProgress: true, showAmount: true, iconZ: 0 },
+                // Icon only. The cash physically stacked on this pad already
+                // says how much is waiting and how full it is, so a fill bar
+                // and a total would be the same fact told three times.
+                { icon: 'money' },
             );
             till.setEnabled(false);
             this._collectZones.push(till);
@@ -459,13 +460,10 @@ export class FarmScene extends Scene {
             }
             zone.update(dt);
 
-            // Takings pad: how covered the counter is, and what it is worth.
             const till = this._collectZones[i];
             if (till.enabled !== stand.isOpen) till.setEnabled(stand.isOpen);
             if (!stand.isOpen) continue;
             till.occupied = till.contains(x, z);
-            till.setProgress(stand.tillFullness);
-            till.setAmount(stand.tillValue > 0 ? stand.tillValue : null);
             till.update(dt);
         }
     }

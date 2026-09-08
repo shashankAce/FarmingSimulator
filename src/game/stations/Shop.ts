@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Scene } from 'noonengine';
-import { ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
+import { ECONOMY, QUEUE, SHOP, SHOPS, ZONE, resolveShop, type ShopPlacement } from '../Config.ts';
 import { makeCashStack } from '../procgen/Machines.ts';
 import { ShopStock } from './ShopStock.ts';
 import { obstacles } from '../world/Obstacles.ts';
@@ -47,7 +47,7 @@ export class ShopStand {
     private _building = false;
     private _open = false;
 
-    /** Takings sitting on the counter, one entry per completed order. */
+    /** Takings waiting on the collect pad, one entry per completed order. */
     private _till: Array<{ obj: THREE.Group; value: number }> = [];
     private _tillSlots: THREE.Vector3[] = [];
     private _tillPool: THREE.Group[] = [];
@@ -72,9 +72,8 @@ export class ShopStand {
         const fb = this.place.frameBox;
         this._colliderId = obstacles.add(fb.x, fb.z, fb.w, fb.d);
 
-        const built = makeShop();
-        this._stall = built.group;
-        this._tillSlots = built.cashSlots;
+        this._stall = makeShop();
+        this._tillSlots = this._tillLayout();
         at(rot(this._stall, 0, yaw, 0), stall.x, 0, stall.z);
         this._stall.visible = false;
         this.group.add(this._stall);
@@ -170,7 +169,7 @@ export class ShopStand {
     collectTill(): number {
         const entry = this._till.pop();
         if (!entry) return 0;
-        this._stall.remove(entry.obj);
+        this.group.remove(entry.obj);
         entry.obj.visible = false;
         this._tillPool.push(entry.obj);
         return entry.value;
@@ -181,11 +180,6 @@ export class ShopStand {
 
     /** Bottles left to sell here. */
     get hasStock(): boolean { return this.stock.bottles > 0; }
-
-    /** 0..1 how covered the counter is — drives the takings pad's fill. */
-    get tillFullness(): number {
-        return this._tillSlots.length === 0 ? 0 : this._till.length / this._tillSlots.length;
-    }
 
     private _sellOne(): boolean {
         if (!this.tillHasRoom) return false;        // counter covered — clear it first
@@ -227,16 +221,51 @@ export class ShopStand {
     }
 
     /**
-     * A finished order pays out onto the counter rather than the ground. The
-     * counter only holds `SHOP.tillSlots` of them, so takings left uncollected
+     * Where each stack of takings sits on the collect pad.
+     *
+     * A grid, not the old row along the counter top: the pad is nearly square,
+     * so four in a line would hang off both ends of it. Laid out on WORLD axes
+     * rather than the stall's, because the pad is axis-aligned too — inheriting
+     * the stall yaw here would sit the cash at an angle to the markings under
+     * it. Rows fill from the far edge forward, leaving the near strip to the
+     * money readout.
+     */
+    private _tillLayout(): THREE.Vector3[] {
+        const pad = this.place.collectPad;
+        const cols = Math.max(1, SHOP.tillCols);
+        const rows = Math.max(1, SHOP.tillRows);
+        const perLayer = cols * rows;
+        const stepX = ZONE.collect.w / cols;
+
+        const slots: THREE.Vector3[] = [];
+        for (let i = 0; i < SHOP.tillSlots; i++) {
+            // Fill the grid, then start a second layer on top of the first.
+            const n = i % perLayer;
+            slots.push(new THREE.Vector3(
+                pad.x + (n % cols - (cols - 1) / 2) * stepX,
+                Math.floor(i / perLayer) * SHOP.tillLayer,
+                pad.z + (Math.floor(n / cols) - (rows - 1) / 2) * SHOP.tillRowGap,
+            ));
+        }
+        return slots;
+    }
+
+    /**
+     * A finished order pays out onto the collect pad rather than the ground.
+     * The pad only holds `SHOP.tillSlots` of them, so takings left uncollected
      * eventually stop the stall — which is the whole point of the limit.
      */
     private _payOut(bottles: number): void {
         const value = bottles * ECONOMY.bottleValue;
         this._state.pendingPayout += value;
 
-        if (!this.tillHasRoom) {
-            // Shouldn't happen (a full till blocks the sale), but never lose money.
+        // Physical slots, NOT `tillHasRoom`. That predicate also reserves room
+        // for orders still in flight, and a shopper is still counted as one at
+        // the instant they pay (`_onPay` runs while they are celebrating, one
+        // line before their phase flips). Testing it here meant every payout
+        // landing on the last free slot took the "never lose money" branch and
+        // banked itself, so the HUD total climbed with nobody at the pad.
+        if (this._till.length >= this._tillSlots.length) {
             this._state.addMoney(value);
             return;
         }
@@ -245,9 +274,12 @@ export class ShopStand {
         obj.visible = true;
         obj.scale.setScalar(0.75);
         obj.position.copy(this._tillSlots[this._till.length]);
-        obj.rotation.y = (Math.random() - 0.5) * 0.5;
-        // Parented to the stall so it inherits the stall's yaw automatically.
-        this._stall.add(obj);
+        // Square to the grid. Pooled stacks carry the last angle they were
+        // given, so this has to be assigned rather than left alone.
+        obj.rotation.y = 0;
+        // Parented to the stand, not the stall: these sit on world-axis pad
+        // slots and must not pick up the stall's yaw.
+        this.group.add(obj);
         this._till.push({ obj, value });
     }
 }

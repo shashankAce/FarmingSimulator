@@ -264,8 +264,18 @@ export const SHOP = {
      * the customer side so it clears the serving pad behind it.
      */
     frame: { w: 5.0, d: 2.0, offset: 1.05 },
-    /** Completed orders stack up here; sales stall once it's full. */
-    tillSlots: 4,
+    /**
+     * Takings waiting on the collect pad; sales stall once every slot is used.
+     * They fill a `tillCols` x `tillRows` grid centred on the pad and then keep
+     * stacking in layers on top of it, so `tillSlots` is two full grids' worth.
+     */
+    tillSlots: 12,
+    tillCols: 2,
+    tillRows: 3,
+    /** Gap between rows of takings, front to back. */
+    tillRowGap: 0.42,
+    /** Height of one full grid, i.e. how far the next layer sits above it. */
+    tillLayer: 0.16,
     /** Crates that can be set down at one stall. */
     stockCrates: 3,
     /** From the stall origin out to the counter face. */
