@@ -92,9 +92,6 @@ export class ShopStand {
 
     get isOpen(): boolean { return this._open && this._raise >= 1; }
 
-    /** Cash waiting on the counter. */
-    get tillCount(): number { return this._till.length; }
-
     get tillValue(): number {
         let v = 0;
         for (const t of this._till) v += t.value;
@@ -112,7 +109,7 @@ export class ShopStand {
     get isBuilding(): boolean { return this._building; }
     get frontWants(): number { return this.queue.frontWants; }
 
-    /** 0..1 how stocked this stall is, for the pad's fill bar. */
+    /** 0..1 how stocked this stall is, for the serving pad's fill bar. */
     get stockFullness(): number { return this.stock.fullness; }
 
     /** Starts the build animation. Idempotent. */
@@ -138,14 +135,13 @@ export class ShopStand {
     /**
      * One tick of work at this counter:
      *   1. set down a crate you're carrying,
-     *   2. serve the shopper at the front from the dropped stock,
-     *   3. if that couldn't happen, sweep a stack of takings off the counter.
+     *   2. serve the shopper at the front from the dropped stock.
      *
-     * Selling comes BEFORE sweeping on purpose. Sweep-first would empty the
-     * till on the same tick it filled, so the cash would never actually be seen
-     * on the counter and the limit would never bite. This way takings visibly
-     * stack up to the cap, block the stall, and clearing them is what starts it
-     * again — while step 3 still drains a counter that has nothing left to sell.
+     * Sweeping the takings is deliberately NOT here — it lives on its own pad
+     * (`collectPad` / `collectTick`), so a counter that fills up has to be
+     * walked to and cleared instead of draining itself under whoever happens to
+     * be serving. That is the whole point of the till cap: it is the thing that
+     * turns a stocked stall into a job rather than a machine.
      *
      * Both the player and the hired shopkeeper go through this, so automation
      * plays by exactly the same rules.
@@ -158,21 +154,16 @@ export class ShopStand {
             if (count > 0) { this.stock.addCrate(count); return true; }
         }
 
-        if (this._sellOne()) return true;
+        return this._sellOne();
+    }
 
-        // Sweep ONLY when the counter is actually in the way — either it's full
-        // and blocking the next sale, or there's nothing left to sell and the
-        // takings would otherwise be stranded. Sweeping on every idle tick (the
-        // obvious version) empties the till the instant it fills, so the cash is
-        // never seen and the limit never means anything.
-        const blocking = !this.tillHasRoom;
-        const idle = this.stock.bottles === 0;
-        if (blocking || idle) {
-            const swept = this.collectTill();
-            if (swept > 0) { credit(swept); return true; }
-        }
-
-        return false;
+    /** One tick at the takings pad: lift a single stack and bank it. */
+    collectTick(credit: (value: number) => void): boolean {
+        if (!this.isOpen) return false;
+        const swept = this.collectTill();
+        if (swept <= 0) return false;
+        credit(swept);
+        return true;
     }
 
     /** Takes one stack of cash off the counter. Returns its value, or 0. */
@@ -185,9 +176,15 @@ export class ShopStand {
         return entry.value;
     }
 
-    /** True when there is anything here worth walking over for. */
-    get needsAttention(): boolean {
-        return this.isOpen && (this._till.length > 0 || this.stock.bottles > 0);
+    /** Cash on the counter waiting to be swept at the takings pad. */
+    get hasTakings(): boolean { return this._till.length > 0; }
+
+    /** Bottles left to sell here. */
+    get hasStock(): boolean { return this.stock.bottles > 0; }
+
+    /** 0..1 how covered the counter is — drives the takings pad's fill. */
+    get tillFullness(): number {
+        return this._tillSlots.length === 0 ? 0 : this._till.length / this._tillSlots.length;
     }
 
     private _sellOne(): boolean {
@@ -308,6 +305,37 @@ export class ShopRow {
         return stand ? stand.serveTick(load, credit) : false;
     }
 
+    /**
+     * One tick of sweeping at whichever open stall's TAKINGS pad this point is
+     * on. Separate from `serveTick` so serving and banking cannot happen from
+     * the same spot.
+     */
+    collectTick(x: number, z: number, credit: (value: number) => void, radius = 2.4): boolean {
+        const stand = this.standAtCollect(x, z, radius);
+        return stand ? stand.collectTick(credit) : false;
+    }
+
+    /** The open stall whose takings pad contains this point, if any. */
+    standAtCollect(x: number, z: number, radius = 2.4): ShopStand | null {
+        for (const s of this.stands) {
+            if (!s.isOpen) continue;
+            if (Math.hypot(s.place.collectPad.x - x, s.place.collectPad.z - z) <= radius) return s;
+        }
+        return null;
+    }
+
+    /** Nearest open stall with cash waiting on the counter. */
+    nearestWithTakings(x: number, z: number): ShopStand | null {
+        let best: ShopStand | null = null;
+        let bestD = Infinity;
+        for (const s of this.stands) {
+            if (!s.isOpen || !s.hasTakings) continue;
+            const d = (s.place.collectPad.x - x) ** 2 + (s.place.collectPad.z - z) ** 2;
+            if (d < bestD) { bestD = d; best = s; }
+        }
+        return best;
+    }
+
     /** The open stall whose serving pad contains this point, if any. */
     standAt(x: number, z: number, radius = 2.4): ShopStand | null {
         for (const s of this.stands) {
@@ -315,18 +343,6 @@ export class ShopRow {
             if (Math.hypot(s.sellPad.x - x, s.sellPad.z - z) <= radius) return s;
         }
         return null;
-    }
-
-    /** Nearest open stall with takings on the counter or stock left to sell. */
-    nearestNeedingAttention(x: number, z: number): ShopStand | null {
-        let best: ShopStand | null = null;
-        let bestD = Infinity;
-        for (const s of this.stands) {
-            if (!s.needsAttention) continue;
-            const d = (s.sellPad.x - x) ** 2 + (s.sellPad.z - z) ** 2;
-            if (d < bestD) { bestD = d; best = s; }
-        }
-        return best;
     }
 
     /** Total cash sitting uncollected across every counter — drives the HUD. */

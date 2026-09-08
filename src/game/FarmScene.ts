@@ -70,6 +70,8 @@ export class FarmScene extends Scene {
     private _zones: Record<string, Zone> = {};
     /** One serving/construction pad per stand, indexed to match `ShopRow.stands`. */
     private _shopZones: Zone[] = [];
+    /** Takings pad per stand, same indexing. Hidden until the stall opens. */
+    private _collectZones: Zone[] = [];
     private _farmhands: FarmerAssistant[] = [];
     private _shopkeepers: SellerAssistant[] = [];
     /** Hire and upgrade pads, all driven through one payment path. */
@@ -311,6 +313,19 @@ export class FarmScene extends Scene {
             );
             this._shopZones.push(zone);
             sys.scene.add(zone.marker);
+
+            // Takings pad beside it. Only exists once the stall does — a pad for
+            // banking money from a building site reads as a bug.
+            const till = new Zone(
+                `till${stand.index}`, stand.place.collectPad.x, stand.place.collectPad.z,
+                ZONE.collect.w, ZONE.collect.d,
+                // Dead centre: the banknote is short enough that the readout
+                // still clears it without the usual lift.
+                { icon: 'money', showProgress: true, showAmount: true, iconZ: 0 },
+            );
+            till.setEnabled(false);
+            this._collectZones.push(till);
+            sys.scene.add(till.marker);
         }
     }
 
@@ -436,14 +451,22 @@ export class FarmScene extends Scene {
             zone.setSolid(stand.isOpen);
             if (stand.isOpen) {
                 zone.setProgress(stand.stockFullness);
-                // Takings sitting on the counter, so a stall worth walking to
-                // says so from across the yard.
-                zone.setAmount(stand.tillValue > 0 ? stand.tillValue : null);
+                // Money reads on the takings pad now, not here.
+                zone.setAmount(null);
             } else {
                 zone.setProgress(0);
                 zone.setAmount(Math.max(0, Math.ceil(stand.cost - stand.paid)));
             }
             zone.update(dt);
+
+            // Takings pad: how covered the counter is, and what it is worth.
+            const till = this._collectZones[i];
+            if (till.enabled !== stand.isOpen) till.setEnabled(stand.isOpen);
+            if (!stand.isOpen) continue;
+            till.occupied = till.contains(x, z);
+            till.setProgress(stand.tillFullness);
+            till.setAmount(stand.tillValue > 0 ? stand.tillValue : null);
+            till.update(dt);
         }
     }
 
@@ -482,9 +505,19 @@ export class FarmScene extends Scene {
                 });
                 continue;
             }
-            // Sweep takings, set down a crate, or serve — see ShopStand.serveTick.
+            // Set down a crate, or serve — see ShopStand.serveTick. Sweeping the
+            // takings is a separate pad, handled below.
             if (canTransfer) {
                 stand.serveTick(p.load, value => this._state.addMoney(value));
+            }
+        }
+
+        // ── Takings pads: bank one stack of counter cash per tick ──
+        if (canTransfer) {
+            for (let i = 0; i < this._collectZones.length; i++) {
+                const till = this._collectZones[i];
+                if (!till.enabled || !till.occupied) continue;
+                this._shops.stands[i].collectTick(value => this._state.addMoney(value));
             }
         }
 
@@ -606,8 +639,8 @@ export class FarmScene extends Scene {
             case 'collect-earnings': {
                 // Takings pile up on the counters; loose ground cash is only the
                 // opening stake, so prefer whichever is actually waiting.
-                const stand = this._shops.nearestNeedingAttention(p.x, p.z);
-                if (stand && stand.tillCount > 0) return pad(stand.sellPad, 2.4);
+                const stand = this._shops.nearestWithTakings(p.x, p.z);
+                if (stand) return pad(stand.place.collectPad, 2.4);
                 const pile = this._cash.nearestPile(p.x, p.z);
                 return pad(pile ?? STATIONS.startCash, 2.1);
             }

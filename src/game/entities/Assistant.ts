@@ -19,7 +19,8 @@ export interface FarmContext {
 }
 
 type FarmerPhase = 'to-field' | 'harvesting' | 'to-juicer' | 'unloading';
-type SellerPhase = 'to-rack' | 'loading' | 'to-shop' | 'selling' | 'to-cash' | 'collecting';
+type SellerPhase = 'to-rack' | 'loading' | 'to-shop' | 'selling'
+    | 'to-till' | 'sweeping' | 'to-cash' | 'collecting';
 
 /**
  * A hired hand that runs one half of the production loop on its own.
@@ -153,16 +154,45 @@ export class SellerAssistant extends Assistant {
             case 'selling': {
                 this.setMove(0, 0);
                 const stand = this.ctx.shops.standAt(this.x, this.z);
-                // Stay until the load is down AND the counter is clear — leaving
-                // takings behind is what jams the stall for everyone else.
-                if (this.load.isEmpty && (!stand || !stand.needsAttention)) {
-                    this._phase = 'to-cash';
+                // Two ways this ends, and BOTH have to lead to the takings pad.
+                // Sweeping is no longer part of serving, so a counter that fills
+                // mid-shift can no longer clear itself: without the `blocked`
+                // test the seller stands at a jammed stall forever, unable to
+                // sell and with no reason to leave.
+                const blocked = !!stand && stand.hasTakings && !stand.tillHasRoom;
+                const finished = this.load.isEmpty && (!stand || !stand.hasStock);
+                if (blocked || finished) {
+                    this._phase = 'to-till';
                     break;
                 }
                 if (this.tickTransfer(dt)) {
                     this.ctx.shops.serveTick(this.x, this.z, this.load,
                         value => this.ctx.creditMoney(value));
                 }
+                break;
+            }
+            case 'to-till': {
+                // Bank the counter before wandering off; leaving it covered is
+                // what jams the stall for everyone else.
+                const stand = this._stand;
+                if (!stand || !stand.hasTakings) { this._phase = 'to-cash'; break; }
+                const pad = stand.place.collectPad;
+                if (this.moveToward(pad.x, pad.z, 1.2)) this._phase = 'sweeping';
+                break;
+            }
+            case 'sweeping': {
+                this.setMove(0, 0);
+                if (!this.tickTransfer(dt)) break;
+
+                if (this.ctx.shops.collectTick(this.x, this.z, v => this.ctx.creditMoney(v))) break;
+
+                // Counter clear. If it was only the till that stopped the shift,
+                // go straight back and finish selling rather than walking the
+                // whole loop for stock that is already on the ground.
+                const stand = this._stand;
+                if (!this.load.isEmpty || (stand && stand.hasStock)) this._phase = 'to-shop';
+                else if (this.ctx.production.readyRackCount > 0) this._phase = 'to-rack';
+                else this._phase = 'to-cash';
                 break;
             }
             case 'to-cash': {

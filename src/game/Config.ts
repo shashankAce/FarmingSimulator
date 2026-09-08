@@ -110,6 +110,8 @@ export const ZONE = {
     shop: { w: 1.7, d: 3.0 } as PadSize,
     /** Hire and upgrade pads. Deliberately small: they sit among the stations. */
     hire: { w: 1.7, d: 2 } as PadSize,
+    /** Sweep the takings off a stall's counter. */
+    collect: { w: 1.7, d: 1.2 } as PadSize,
 };
 
 /**
@@ -247,8 +249,16 @@ export const SHOP = {
      * than the negation of the drop offsets: mirroring them meant tuning where
      * crates land silently dragged this pad into the counter's collider.
      */
-    hireAlong: 3.0,
-    hireInward: 1,
+    hireAlong: 6.0,
+    hireInward: -1,
+    /**
+     * Takings pad. Money is swept HERE, not at the serving pad, so clearing a
+     * blocked counter costs a walk rather than happening for free under the
+     * player's feet. Sits on the crate flank rather than the hire flank, past
+     * where the crates land, since that side is otherwise dead space.
+     */
+    collectAlong: 4.0,
+    collectInward: -1,
     /**
      * Construction-plot deck, in stall-local units. `offset` pushes it toward
      * the customer side so it clears the serving pad behind it.
@@ -260,9 +270,6 @@ export const SHOP = {
     stockCrates: 3,
     /** From the stall origin out to the counter face. */
     counterOffset: 1.7,
-    /** Size of the serving / construction pad. */
-    padW: 1.8,
-    padD: 3.0,
 };
 
 interface SideVectors {
@@ -290,6 +297,8 @@ export interface ShopPlacement {
     dropPad: { x: number; z: number };
     /** Pad for hiring this stall's shopkeeper, on its other flank. */
     hirePad: { x: number; z: number };
+    /** Where takings are swept off the counter. */
+    collectPad: { x: number; z: number };
     /** The point shoppers turn to face. */
     counter: { x: number; z: number };
     queue: {
@@ -337,6 +346,7 @@ export function resolveShop(cfg: ShopConfig): ShopPlacement {
         dropPad: off(stall, SHOP.dropAlong, -SHOP.dropInward),
         // Opposite flank from the drop, so crates and hiring never share space.
         hirePad: off(stall, SHOP.hireAlong, -SHOP.hireInward),
+        collectPad: off(stall, SHOP.collectAlong, -SHOP.collectInward),
         counter: off(stall, 0, SHOP.counterOffset),
         queue: {
             slot0,
@@ -623,6 +633,7 @@ export function validateLayout(): void {
             warn(`SHOPS[${i}] serving pad is outside YARD — raise SHOP.inset or move it along the fence.`);
         }
         if (!inside(p.hirePad.x, p.hirePad.z)) warn(`SHOPS[${i}] hire pad is outside YARD.`);
+        if (!inside(p.collectPad.x, p.collectPad.z)) warn(`SHOPS[${i}] takings pad is outside YARD.`);
         // Neighbours on the same fence need room for their queues.
         SHOPS.forEach((other, j) => {
             if (j <= i || other.side !== cfg.side) return;

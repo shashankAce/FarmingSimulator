@@ -46,6 +46,12 @@ function poly(points: Array<[number, number]>): THREE.Shape {
     return s;
 }
 
+function disc(r: number): THREE.Shape {
+    const s = new THREE.Shape();
+    s.absarc(0, 0, r, 0, Math.PI * 2, false);
+    return s;
+}
+
 function roundRect(w: number, h: number, r: number): THREE.Shape {
     const s = new THREE.Shape();
     const x = w / 2, y = h / 2;
@@ -154,8 +160,17 @@ export function makeFlatIcon(kind: IconKind): THREE.Group {
             break;
         }
         case 'money': {
-            g.add(flat(roundRect(0.78, 0.46, 0.08), C.MONEY, base));
-            g.add(flat(roundRect(0.24, 0.24, 0.06), C.MONEY_PAPER, base + 2 * LAYER));
+            // A banknote with a coin resting on it. The old glyph was one green
+            // rectangle with a pale square in the middle, which at pad size read
+            // as a button rather than as money — the note needs its printed
+            // border, and the coin is what makes the subject unmistakable.
+            const note: Array<[number, number]> = [[-0.06, 0.06]];
+            g.add(put(flat(roundRect(0.82, 0.46, 0.08), C.MONEY, base), ...note[0]));
+            g.add(put(flat(roundRect(0.7, 0.34, 0.05), C.MONEY_DARK, base + LAYER), ...note[0]));
+            g.add(put(flat(roundRect(0.64, 0.28, 0.04), C.MONEY, base + 2 * LAYER), ...note[0]));
+            g.add(put(flat(disc(0.1), C.MONEY_PAPER, base + 3 * LAYER), ...note[0]));
+            g.add(put(flat(disc(0.2), STRAW_DARK, base + 4 * LAYER), 0.28, -0.18));
+            g.add(put(flat(disc(0.145), STRAW, base + 5 * LAYER), 0.28, -0.18));
             break;
         }
         case 'farmhand': {

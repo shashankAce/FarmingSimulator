@@ -17,6 +17,18 @@ const SOLID = 0x000000;
  * a yellow-green) and the bar disappears into the lawn.
  */
 const PROGRESS = 0x14c274;
+/**
+ * Half the readout's own height plus a little air — the minimum gap it keeps
+ * from the icon above it and from the pad's own edge.
+ */
+const AMOUNT_CLEARANCE = 0.3;
+/** Where the readout sits by default, as a fraction of the pad's depth. */
+const AMOUNT_Z = 0.26;
+/**
+ * How far up-screen a pictogram is lifted when a readout shares its pad, as a
+ * fraction of pad depth. Override per pad with `ZoneOptions.iconZ`.
+ */
+const ICON_LIFT = 0.17;
 /** Money readout, dark on a pale pad and pale on a solid one. */
 const AMOUNT_ON_LIGHT = 0x2f2418;
 const AMOUNT_ON_SOLID = 0xf4f7e8;
@@ -37,6 +49,14 @@ export interface ZoneOptions {
     showProgress?: boolean;
     /** Reserve a flat money readout, driven by `setAmount`. */
     showAmount?: boolean;
+    /**
+     * Where the pictogram sits inside the pad, in world units from its centre.
+     * `iconZ` is negative up-screen. Both default to centred, except that a pad
+     * with a readout lifts its icon by `ICON_LIFT` to make room — pass
+     * `iconZ: 0` to keep a short glyph like the banknote dead centre anyway.
+     */
+    iconX?: number;
+    iconZ?: number;
 }
 
 /**
@@ -142,9 +162,8 @@ export class Zone {
 
         if (opts.icon) {
             const icon = makeFlatIcon(opts.icon);
-            // Shifted up-screen when a readout shares the pad, so the two do
-            // not stack on top of each other in the middle.
-            at(icon, 0, 0.09, opts.showAmount ? -d * 0.17 : 0);
+            at(icon, opts.iconX ?? 0, 0.09,
+                opts.iconZ ?? (opts.showAmount ? -d * ICON_LIFT : 0));
             // multiply, not set: a glyph may carry its own intrinsic scale (the
             // staff busts are drawn smaller than the produce icons), and
             // setScalar here would silently throw that away.
@@ -155,10 +174,19 @@ export class Zone {
 
         if (opts.showAmount) {
             this._amount = new FlatNumber(4, w * 0.5, AMOUNT_ON_LIGHT);
-            // Below the icon when they share the pad; `setIconVisible(false)`
-            // hands the middle back, so an open shop's takings sit centred
-            // rather than parked low where the awning used to be.
-            this._amountZ = opts.icon ? d * 0.26 : 0;
+            // Nominally a fixed fraction down the pad, but pushed further if the
+            // icon actually reaches that far. Glyphs differ wildly in height —
+            // the banknote is a third the depth of a bust, and a centred one
+            // hangs lower than a lifted one — so the collision is MEASURED
+            // rather than guessed at, then clamped inside the pad.
+            //
+            // Safe to measure here: `Box3.expandByObject` refreshes world
+            // matrices as it walks down, and the marker group is still at the
+            // origin, so the numbers come back in pad-local space.
+            const clear = this._icon
+                ? new THREE.Box3().setFromObject(this._icon).max.z + AMOUNT_CLEARANCE
+                : 0;
+            this._amountZ = Math.min(Math.max(clear, d * AMOUNT_Z), d / 2 - AMOUNT_CLEARANCE);
             at(this._amount.group, 0, 0.09, this._amountZ);
             g.add(this._amount.group);
         }
