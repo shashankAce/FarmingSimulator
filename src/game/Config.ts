@@ -84,7 +84,7 @@ export const HUD = { mobileScale: 0.75 };
  * on a phone to win back screen width; a touch control shrinking on the only
  * device that uses it is the wrong trade.
  */
-export const JOYSTICK = { radius: 96, knob: 46 };
+export const JOYSTICK = { radius: 60, knob: 20 };
 
 /** `HUD.mobileScale` on a phone, 1 on desktop and tablet. */
 export function hudScale(): number {

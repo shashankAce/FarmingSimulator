@@ -1,5 +1,5 @@
 import { Graphics, Input, Node, PointerInputEvent, Scene, inputListener } from 'noonengine';
-import { GAME_HEIGHT, GAME_WIDTH } from '../Config.ts';
+import { GAME_HEIGHT, GAME_WIDTH, JOYSTICK } from '../Config.ts';
 
 /**
  * Floating virtual joystick plus WASD/arrow-key fallback.
@@ -22,9 +22,6 @@ export class Joystick {
     private _originX = 0;
     private _originY = 0;
 
-    private static readonly RADIUS = 96;
-    private static readonly KNOB = 46;
-
     /**
      * Screen points to leave alone. Because the stick claims pointer-down
      * globally without hit-testing, an on-screen button would otherwise plant a
@@ -39,14 +36,14 @@ export class Joystick {
         this._base = new Node(0, 0);
         const baseG = this._base.addComponent(Graphics);
         baseG.setLineWidth(6);
-        baseG.drawCircle(Joystick.RADIUS, 'rgba(255,255,255,0.16)', 'rgba(255,255,255,0.55)');
+        baseG.drawCircle(JOYSTICK.radius, 'rgba(255,255,255,0.16)', 'rgba(255,255,255,0.55)');
         this._base.zIndex = 900;
         scene.addChild(this._base);
 
         this._knob = new Node(0, 0);
         const knobG = this._knob.addComponent(Graphics);
         knobG.setLineWidth(4);
-        knobG.drawCircle(Joystick.KNOB, 'rgba(255,255,255,0.75)', 'rgba(255,255,255,0.9)');
+        knobG.drawCircle(JOYSTICK.knob, 'rgba(255,255,255,0.75)', 'rgba(255,255,255,0.9)');
         this._knob.zIndex = 901;
         scene.addChild(this._knob);
 
@@ -99,11 +96,11 @@ export class Joystick {
         const dx = e.x - this._originX;
         const dy = e.y - this._originY;
         const dist = Math.hypot(dx, dy);
-        const clamped = Math.min(dist, Joystick.RADIUS);
+        const clamped = Math.min(dist, JOYSTICK.radius);
 
         if (dist > 0.001) {
-            this.x = (dx / dist) * (clamped / Joystick.RADIUS);
-            this.y = (dy / dist) * (clamped / Joystick.RADIUS);
+            this.x = (dx / dist) * (clamped / JOYSTICK.radius);
+            this.y = (dy / dist) * (clamped / JOYSTICK.radius);
             this._knob.setPosition({
                 x: this._originX + (dx / dist) * clamped,
                 y: this._originY + (dy / dist) * clamped,

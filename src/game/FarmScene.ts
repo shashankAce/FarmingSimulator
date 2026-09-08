@@ -758,7 +758,13 @@ export class FarmScene extends Scene {
                 return pad(pile ?? STATIONS.startCash, 2.1);
             }
             case 'unlock-shop': {
-                const stand = this._shops.nextLocked();
+                // The stall mid-build wins over the next one to buy. Paying for
+                // a plot starts a raise animation that takes about a second,
+                // during which the stall is `isBuilding` but not yet `isOpen` —
+                // so the objective was still 'unlock-shop' while `nextLocked()`
+                // had already moved on, and the marker jumped to the NEXT stall
+                // for that second before snapping away to the field.
+                const stand = this._shops.building() ?? this._shops.nextLocked();
                 return pad(stand ? stand.sellPad : STATIONS.startCash, 2.6);
             }
             case 'expand': {

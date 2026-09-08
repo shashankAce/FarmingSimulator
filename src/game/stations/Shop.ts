@@ -343,6 +343,17 @@ export class ShopRow {
     }
 
     /**
+     * The stall currently rising out of its plot, if any.
+     *
+     * Distinct from `nextLocked`, which deliberately skips it — a stall being
+     * built is already paid for and is not something to send the player at. It
+     * is still what the player is LOOKING at, though, which is what this is for.
+     */
+    building(): ShopStand | null {
+        return this.stands.find(s => s.isBuilding) ?? null;
+    }
+
+    /**
      * One tick of counter work at whichever open stall the seller is standing
      * on. Nothing happens unless they are actually on a serving pad — dropping
      * stock nearby is not enough to make a sale.
