@@ -25,10 +25,21 @@ export interface CharacterRig {
     earL: THREE.Group;
     earR: THREE.Group;
     /**
-     * Where carried crates are parented — on the character's BACK, so a tall
-     * stack rides behind them instead of covering the body from this camera.
+     * The two places a load can ride. Which one a given crate uses is a fact
+     * about that crate, not about the character — see `HOLD` in
+     * `world/CarryLoad.ts`.
+     *
+     * `holdAnchor` is out in front on the forearms, and the character has a
+     * pose for it. `backAnchor` is for anything too big to hold there without
+     * hiding the character from this camera.
      */
     holdAnchor: THREE.Object3D;
+    backAnchor: THREE.Object3D;
+    /**
+     * The tool in the right paw, once one has been given — kept so it can be
+     * put away. Null for a character who never had one.
+     */
+    tool: THREE.Object3D | null;
     /** Phase accumulator owned by `animateCharacter`. */
     phase: number;
     /**
@@ -79,25 +90,22 @@ const FOOT_DROP = 0.17 * 0.65;
 const BODY_Y = LEG_LEN + FOOT_DROP - HIP_Y - 0.03;
 
 /**
- * Where carried crates hang off the character, in root space.
+ * Where a load rides, in root space. Crates stack upward from either point.
  *
- * `HOLD_Z` is negative — the load sits BEHIND the body — and marks the
- * character's BACK SURFACE, a hair clear of the torso (whose own back is at
- * about -0.48). It is not where a crate's centre goes: `CarryLoad` pushes each
- * crate back by its own half-depth from here, so this stays one number about
- * the character while how far a basket or a rack sticks out stays a fact about
- * that container.
+ * FRONT is waist height out on the forearms — the position the carry pose
+ * reaches for, and where a rack of bottles is held.
  *
- * Crates stack upward from here, so `HOLD_Y` is the height the bottom of the
- * pile rests at — the SMALL OF THE BACK, not the hips. Two reasons, both
- * learned the hard way: down at hip height the body has tapered to nothing
- * behind, so the load had air around it and read as floating along behind the
- * character; and it sat right in the arc of the swinging paws. Up here the
- * overalls are at their widest, so the crate has something to rest against,
- * and the nearest paw at full backswing clears the bottom corner by 0.05.
+ * BACK is for anything too big to hold in front. `HOLD_BACK_Z` marks the
+ * character's back SURFACE, a hair clear of the torso (whose own back is at
+ * about -0.48), NOT where a crate's centre goes: `CarryLoad` pushes a
+ * back-carried crate back by its own half-depth from here, so this stays one
+ * number about the character while how far a given container sticks out stays
+ * a fact about that container.
  */
-const HOLD_Y = 0.62;
-const HOLD_Z = -0.47;
+const HOLD_FRONT_Y = 0.34;
+const HOLD_FRONT_Z = 0.9;
+const HOLD_BACK_Y = 0.62;
+const HOLD_BACK_Z = -0.47;
 
 export const PLAYER_COLORS: CharacterColors = {
     fur: C.FUR, furDark: C.FUR_DARK, snout: C.SNOUT,
@@ -204,13 +212,14 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     }
     body.position.y = BODY_Y;
 
-    // ── Hold anchor: on the BACK, not out in front ──
-    // Just clear of the torso's own back surface and up at shoulder height, so
-    // the pile rides the back like a load strapped on rather than floating past
-    // the snout and hiding the character.
+    // ── Hold anchors: one out in front on the forearms, one on the back ──
     const holdAnchor = new THREE.Object3D();
-    at(holdAnchor, 0, HOLD_Y, HOLD_Z);
+    at(holdAnchor, 0, HOLD_FRONT_Y, HOLD_FRONT_Z);
     root.add(holdAnchor);
+
+    const backAnchor = new THREE.Object3D();
+    at(backAnchor, 0, HOLD_BACK_Y, HOLD_BACK_Z);
+    root.add(backAnchor);
 
     root.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = false; } });
 
@@ -220,7 +229,8 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     root.scale.setScalar(CHARACTER.scale);
 
     return {
-        root, body, head, armL, armR, legL, legR, earL, earR, holdAnchor,
+        root, body, head, armL, armR, legL, legR, earL, earR, holdAnchor, backAnchor,
+        tool: null,
         phase: 0, sweepTo: 0, sweepAt: 0, sweepHold: 0,
         swingFrom: 0, swingT: 0, swingArc: 0, sweepBlend: 0,
     };
@@ -230,9 +240,10 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
  * Drives the walk cycle. `speed01` is normalised movement speed (0 = idle,
  * 1 = full tilt); at 0 the rig settles into a gentle idle breath instead.
  *
- * A carried load does NOT change the pose: the crates ride on the character's
- * back, so there is nothing for the paws to hold and the arms keep their walk
- * swing. Only the harvest swing takes the arms over.
+ * `inArms` is for a load held OUT IN FRONT: the arms lock out under it instead
+ * of counter-swinging, while the legs and body keep their full cycle, which is
+ * what sells the weight. A load on the BACK leaves this false — there is
+ * nothing there for the paws to hold, so the arms swing as normal.
  */
 /** How quickly the blade unwinds back to centre once cutting stops. */
 const SWEEP_RATE = 9;
@@ -373,16 +384,22 @@ export function startSwing(rig: CharacterRig, halfArc: number, hold: number): vo
     rig.sweepHold = hold;
 }
 
-export function animateCharacter(rig: CharacterRig, dt: number, speed01: number): void {
+export function animateCharacter(rig: CharacterRig, dt: number, speed01: number, inArms = false): void {
     rig.phase += dt * (4.0 + speed01 * 9.0);
     const s = Math.min(1, speed01);
     const swing = Math.sin(rig.phase);
 
-    // Legs alternate; arms counter-swing, loaded or not.
+    // Legs alternate; arms counter-swing unless they're holding something.
     rig.legL.rotation.x = swing * 0.85 * s;
     rig.legR.rotation.x = -swing * 0.85 * s;
-    rig.armL.rotation.set(-swing * 0.7 * s, 0, 0);
-    rig.armR.rotation.set(swing * 0.7 * s, 0, 0);
+    if (inArms) {
+        // Reach forward and slightly inward, so both paws meet under the crate.
+        rig.armL.rotation.set(-1.32, 0, 0.3);
+        rig.armR.rotation.set(-1.32, 0, -0.3);
+    } else {
+        rig.armL.rotation.set(-swing * 0.7 * s, 0, 0);
+        rig.armR.rotation.set(swing * 0.7 * s, 0, 0);
+    }
 
     // Harvest swing: advance the timeline, then take over the arms. Applied
     // AFTER the walk cycle has set them so it wins either way, and added ON TOP
@@ -457,7 +474,9 @@ export function animateCharacter(rig: CharacterRig, dt: number, speed01: number)
  * crop or goes at it flat-on.
  */
 export function giveKukri(rig: CharacterRig): void {
-    rig.armR.add(at(rot(scl(makeKukri(), 0.9), 0, Math.PI, 0), 0.04, -0.78, 0.06));
+    const kukri = at(rot(scl(makeKukri(), 0.9), 0, Math.PI, 0), 0.04, -0.78, 0.06);
+    rig.armR.add(kukri);
+    rig.tool = kukri;
 }
 
 /**

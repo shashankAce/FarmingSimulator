@@ -492,6 +492,11 @@ export class FarmScene extends Scene {
             till.setNotice(stand.tillFull);
             till.update(dt);
         }
+
+        // Standing at a stall — either side of it — puts the kukri away. Serving
+        // and sweeping the takings are counter work, not field work.
+        this._player.stowTool =
+            this._shopZones.some(z => z.occupied) || this._collectZones.some(t => t.occupied);
     }
 
     private _handlePlayerActions(dt: number, canTransfer: boolean): void {

@@ -31,7 +31,7 @@ const STACK_LIMIT = MACHINE.rackStackLimit;
 /** Trestle surface the bottom crate of each stack rests on. */
 const TRESTLE_Y = 0.93;
 /** Spacing between stand positions, matched to the shared crate scale. */
-const SLOT_PITCH = 1.35 * CRATE_SCALE;
+const SLOT_PITCH = 1.35 * CRATE_SCALE.bottle;
 
 /**
  * The juicer → conveyor → rack chain.
@@ -339,10 +339,10 @@ export class Production {
         const level = depth[index];
         const built = this._rackPool.pop() ?? makeBottleRack();
         built.group.visible = true;
-        built.group.scale.setScalar(CRATE_SCALE);
+        built.group.scale.setScalar(CRATE_SCALE.bottle);
         built.group.position.set(
             this._rackOrigin.x + (index - (STAND_SLOTS - 1) / 2) * SLOT_PITCH,
-            TRESTLE_Y + level * CRATE_PITCH.bottle * CRATE_SCALE,
+            TRESTLE_Y + level * CRATE_PITCH.bottle * CRATE_SCALE.bottle,
             this._rackOrigin.z,
         );
         this.group.add(built.group);

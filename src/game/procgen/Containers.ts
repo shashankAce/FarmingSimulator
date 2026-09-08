@@ -14,32 +14,41 @@ import { at, box, rot } from './Primitives.ts';
  */
 
 /**
- * One display scale for every crate, wherever it sits — carried, on the
- * production stand, or set down at a shop. It is the carried size, because
- * that's the one tuned against the character; anything else made the same
- * object appear to change size as it moved between stations.
+ * Display scale of a crate, wherever it sits — carried, on the production
+ * stand, or set down at a shop. It is the carried size, because that's the one
+ * tuned against the character; anything else makes the same object appear to
+ * change size as it moves between stations, so every site that draws a crate
+ * has to use the entry for what it holds.
+ *
+ * One entry per kind rather than one number for both. A basket is sized around
+ * a whole carrot lying down and comes out big; a rack of bottles at the same
+ * scale read small beside it, so bottles and their crate are drawn half again
+ * as large. The bottles inside follow for free — they are children of the rack
+ * and scaled relative to it — and so do loose ones, via
+ * `LOOSE_BOTTLE_SCALE` below.
  */
-export const CRATE_SCALE = 0.58;
+const CRATE_BASE = 0.58;
+export const CRATE_SCALE = { carrot: CRATE_BASE, bottle: CRATE_BASE * 1.5 };
 /**
  * Contents scale, relative to the crate they sit in.
  *
- * `carrot` is derived rather than chosen: at exactly `1 / CRATE_SCALE` a carried
- * carrot renders at its true world size, so the one in the basket is the one
- * that came out of the ground. The basket below is sized around that, not the
- * other way about — shrinking the carrot to fit a small basket is what made
- * picking one visibly halve it.
+ * `carrot` is derived rather than chosen: at exactly `1 / CRATE_SCALE.carrot` a
+ * carried carrot renders at its true world size, so the one in the basket is
+ * the one that came out of the ground. The basket below is sized around that,
+ * not the other way about — shrinking the carrot to fit a small basket is what
+ * made picking one visibly halve it.
  */
-export const CONTENT_SCALE = { bottle: 0.78, carrot: 1 / CRATE_SCALE };
+export const CONTENT_SCALE = { bottle: 0.78, carrot: 1 / CRATE_SCALE.carrot };
 /** Vertical pitch when crates are stacked, in crate-local units. See `CARRY.pitch`. */
 export const CRATE_PITCH = CARRY.pitch;
 /** World scale of a loose bottle, matched to one sitting in a crate. */
-export const LOOSE_BOTTLE_SCALE = CRATE_SCALE * CONTENT_SCALE.bottle;
+export const LOOSE_BOTTLE_SCALE = CRATE_SCALE.bottle * CONTENT_SCALE.bottle;
 /**
  * The same for a carrot growing in the ground. Without it the field grew them
  * at full size while a basket showed them at 0.5, so picking one visibly
  * halved it.
  */
-export const LOOSE_CARROT_SCALE = CRATE_SCALE * CONTENT_SCALE.carrot;
+export const LOOSE_CARROT_SCALE = CRATE_SCALE.carrot * CONTENT_SCALE.carrot;
 
 // Sourced from `CARRY` so the whole of a character's capacity is tunable from
 // one place. These stay exported because they also shape the crate meshes below.
@@ -183,7 +192,8 @@ export function makeCarrotBasket(): { group: THREE.Group; slots: THREE.Vector3[]
 export function makeRackStandFrame(): THREE.Group {
     const g = new THREE.Group();
     // A trestle the finished racks sit on, matching the reference's low bench.
-    // Sized against CRATE_SCALE — a full-width bench dwarfs the crates on it.
+    // Sized against CRATE_SCALE.bottle — a full-width bench dwarfs the crates
+    // on it, and it is bottle racks that stand here.
     g.add(at(box(2.7, 0.14, 1.05, C.WOOD_LIGHT), 0, 0.86, 0));
     for (const x of [-1.05, 1.05]) {
         for (const z of [-0.38, 0.38]) {

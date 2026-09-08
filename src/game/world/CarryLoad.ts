@@ -20,30 +20,40 @@ const CAPACITY: Record<ItemKind, number> = { carrot: BASKET_CAPACITY, bottle: RA
 /** Vertical pitch when crates are stacked in the arms, before CARRY_SCALE. */
 const PITCH: Record<ItemKind, number> = CRATE_PITCH;
 /**
- * Crate scale on the character.
+ * Crate scale on the character, per kind.
  *
  * `CRATE_SCALE` is a WORLD size and every other site uses it directly, but
  * these crates hang off a character that is itself scaled by `CHARACTER.scale`,
  * so the character's scale is divided back out. Without that, setting a crate
  * down on a counter would visibly shrink it.
  */
-const CARRY_SCALE = CRATE_SCALE / CHARACTER.scale;
+const CARRY_SCALE: Record<ItemKind, number> = {
+    carrot: CRATE_SCALE.carrot / CHARACTER.scale,
+    bottle: CRATE_SCALE.bottle / CHARACTER.scale,
+};
 /**
- * How far behind the anchor a crate sits: exactly its own half-depth, so the
- * crate's FRONT face lands ON the anchor and rests against the back.
+ * Where each kind is carried, and how far behind its anchor it sits.
  *
- * The anchor is the character's back surface (`HOLD_Z` in
- * `procgen/Character.ts`), so a crate centred there has half of itself inside
- * the body — for a basket that was a third of a unit of torso. No air is added
- * on top: a gap here is what makes the load look like it is trailing the
- * character rather than being carried by them.
+ * A rack of bottles is small enough to hold out in front on the forearms, which
+ * is the pose the character has for it. A basket of carrots is not: it is sized
+ * around a carrot lying lengthways, which makes it nearly a unit deep and wider
+ * than the character, and held in front a stack of them hid the character
+ * completely from this camera. Baskets ride on the back instead.
  *
- * Scaled by `CARRY_SCALE` because the depth is in crate-local units while the
- * position is in the anchor's space, where the crate's own scale does not apply.
+ * `back` is only for the back anchor, which marks the character's back SURFACE:
+ * a crate centred there has half of itself inside the body, which for a basket
+ * was a third of a unit of torso, so it is pushed back by its own half-depth
+ * and its FRONT face lands on the anchor. No air on top of that — a gap makes
+ * the load look like it is trailing the character rather than carried by them.
+ * A crate held in front needs none of this and sits on its anchor.
+ *
+ * The depth is scaled by `CARRY_SCALE` because it is in crate-local units while
+ * the position is in the anchor's space, where the crate's own scale does not
+ * apply.
  */
-const BACK_OFF: Record<ItemKind, number> = {
-    carrot: (CRATE_DEPTH.carrot / 2) * CARRY_SCALE,
-    bottle: (CRATE_DEPTH.bottle / 2) * CARRY_SCALE,
+const HOLD: Record<ItemKind, { onBack: boolean; back: number }> = {
+    bottle: { onBack: false, back: 0 },
+    carrot: { onBack: true, back: (CRATE_DEPTH.carrot / 2) * CARRY_SCALE.carrot },
 };
 /**
  * An item's flight from where it was picked into its slot.
@@ -129,9 +139,9 @@ interface Picked {
 }
 
 /**
- * What a character is carrying: a small stack of crates riding on their back
- * (see `holdAnchor` in `procgen/Character.ts`), not a column of loose goods
- * balanced on the head.
+ * What a character is carrying: a small stack of crates, held out in front on
+ * the forearms or riding on the back depending on the crate's own size (see
+ * `HOLD` below) — not a column of loose goods balanced on the head.
  *
  * Items always live inside a container — a slatted rack for bottles, an open
  * basket for carrots — and a container that runs empty is discarded outright.
@@ -143,7 +153,8 @@ interface Picked {
  * `skills/core/performance.md` warns about.
  */
 export class CarryLoad {
-    private _anchor: THREE.Object3D;
+    private _front: THREE.Object3D;
+    private _back: THREE.Object3D;
     private _maxContainers: number;
     private _stack: Carried[] = [];
     private _picked: Picked[] = [];
@@ -162,11 +173,25 @@ export class CarryLoad {
     private static _cratePool: Record<ItemKind, Array<{ group: THREE.Group; slots: THREE.Vector3[] }>> =
         { carrot: [], bottle: [] };
 
-    constructor(anchor: THREE.Object3D, maxContainers: number) {
-        this._anchor = anchor;
+    constructor(anchors: { front: THREE.Object3D; back: THREE.Object3D }, maxContainers: number) {
+        this._front = anchors.front;
+        this._back = anchors.back;
         this._maxContainers = maxContainers;
-        this._incoming.scale.setScalar(CARRY_SCALE);
-        anchor.add(this._incoming);
+        // Parented to the back anchor only because it needs a parent scaled
+        // like a crate; a queued item is pinned to world space every frame, so
+        // which of the two it hangs off is not visible.
+        this._incoming.scale.setScalar(CARRY_SCALE.carrot);
+        this._back.add(this._incoming);
+    }
+
+    /**
+     * True while the load is held out in FRONT — the character's arms are under
+     * it, so it drives the carry pose. False for a load on the back, and false
+     * when empty.
+     */
+    get inArms(): boolean {
+        const kind = this.kind;
+        return kind !== null && !HOLD[kind].onBack;
     }
 
     /** Items cut and on their way in, but not yet in a crate. */
@@ -213,7 +238,7 @@ export class CarryLoad {
      */
     topCrateWorld(out: THREE.Vector3): THREE.Vector3 {
         const top = this._stack[this._stack.length - 1];
-        return (top ? top.group : this._anchor).getWorldPosition(out);
+        return (top ? top.group : this._front).getWorldPosition(out);
     }
 
     /**
@@ -368,7 +393,7 @@ export class CarryLoad {
             c.t = Math.min(1, c.t + dt * 7);
             const p = c.t;
             const s = 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2);
-            c.group.scale.setScalar(Math.max(0.01, s) * CARRY_SCALE);
+            c.group.scale.setScalar(Math.max(0.01, s) * CARRY_SCALE[c.kind]);
         }
 
         this._advanceQueue(dt);
@@ -510,8 +535,9 @@ export class CarryLoad {
         const built = CarryLoad._acquireCrate(kind);
         built.group.visible = true;
         built.group.scale.setScalar(0.01);
-        built.group.position.set(0, this._stackHeight(kind), -BACK_OFF[kind]);
-        this._anchor.add(built.group);
+        const hold = HOLD[kind];
+        built.group.position.set(0, this._stackHeight(kind), -hold.back);
+        (hold.onBack ? this._back : this._front).add(built.group);
 
         const carried: Carried = { kind, group: built.group, slots: built.slots, items: [], t: 0 };
         this._stack.push(carried);
@@ -526,14 +552,15 @@ export class CarryLoad {
             CarryLoad._releaseItem(top.kind, item);
         }
         top.items.length = 0;
-        this._anchor.remove(top.group);
+        // Whichever anchor it went to — a rack rides in front, a basket behind.
+        top.group.parent?.remove(top.group);
         top.group.visible = false;
         top.group.scale.setScalar(1);
         CarryLoad._cratePool[top.kind].push({ group: top.group, slots: top.slots });
     }
 
     private _stackHeight(kind: ItemKind): number {
-        return this._stack.length * PITCH[kind] * CARRY_SCALE;
+        return this._stack.length * PITCH[kind] * CARRY_SCALE[kind];
     }
 
     private static _acquireItem(kind: ItemKind): THREE.Group {

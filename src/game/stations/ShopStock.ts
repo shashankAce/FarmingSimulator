@@ -67,7 +67,7 @@ export class ShopStock {
      * its own contents.
      */
     private _stackY(index: number): number {
-        return this._baseY + index * CRATE_PITCH.bottle * CRATE_SCALE;
+        return this._baseY + index * CRATE_PITCH.bottle * CRATE_SCALE.bottle;
     }
 
     /**
@@ -203,7 +203,7 @@ export class ShopStock {
             s.t = Math.min(1, s.t + dt * (s.from ? FLIGHT_RATE : 7));
             const p = s.t;
             s.rack.group.scale.setScalar(
-                Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)) * CRATE_SCALE);
+                Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)) * CRATE_SCALE.bottle);
 
             if (s.from) {
                 // Straight line across, plus an arc peaking mid-flight — the
@@ -213,7 +213,7 @@ export class ShopStock {
             }
 
             if (s.t >= 1) {
-                s.rack.group.scale.setScalar(CRATE_SCALE);
+                s.rack.group.scale.setScalar(CRATE_SCALE.bottle);
                 s.rack.group.position.copy(s.to);
                 s.rack.landed = true;
                 this._spring.splice(i, 1);

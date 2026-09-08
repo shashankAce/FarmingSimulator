@@ -671,7 +671,7 @@ export const HARVEST = {
  */
 export const CARRY = {
     /** Crates in the arms. Assistants carry a lighter load than the player. */
-    playerCrates: 6,
+    playerCrates: 4,
     assistantCrates: 2,
     /**
      * Carrots in a basket. Columns run along a carrot's LENGTH, rows across its
@@ -751,14 +751,26 @@ export const MACHINE = {
     beltGap: 0.32,
     /** Seconds between one item transferring during a pickup/dropoff. */
     transferInterval: 0.11,
-    /** Rack positions along the production stand. */
-    rackStandSlots: 3,
+    /**
+     * Rack positions along the production stand.
+     *
+     * Two, because that is what the trestle holds: the racks sit at
+     * `1.35 * CRATE_SCALE.bottle` apart and are `1.25` of that scale wide, so
+     * two span 2.26 of the bench's 2.70 and a third hangs off both ends. Grow
+     * the stand's capacity by stacking (below) rather than by adding a position
+     * the bench does not have.
+     */
+    rackStandSlots: 2,
     /**
      * Crates that may stack at ONE stand position. Raising this is the storage
      * upgrade — total bottle capacity is
      * `rackStandSlots * rackStackLimit * RACK_CAPACITY`.
+     *
+     * `CARRY.pitch.bottle` already clears the bottles standing in the crate
+     * below, and the stand only ever hands over the TOP crate of a column, so
+     * this is safe to raise on its own.
      */
-    rackStackLimit: 1,
+    rackStackLimit: 2,
 };
 
 /** Camera rig — a fixed offset that follows the player, giving the reference's ~50° tilt. */

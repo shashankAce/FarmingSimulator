@@ -57,6 +57,15 @@ export class Actor {
      */
     harvestTimer = 0;
 
+    /**
+     * Put the tool away this frame, on top of whatever the actor works out for
+     * itself. Set by whoever knows where the character is standing — a blade in
+     * the paw of someone working a shop counter reads badly.
+     *
+     * Written every frame rather than toggled, so nothing can leave it stuck.
+     */
+    stowTool = false;
+
     /** Desired movement direction this frame, in world XZ. Not normalised by the caller. */
     protected _dirX = 0;
     protected _dirZ = 0;
@@ -78,7 +87,8 @@ export class Actor {
         group.object3D.add(this.rig.root);
 
         this.rig.root.position.set(this.x, 0, this.z);
-        this.load = new CarryLoad(this.rig.holdAnchor, opts.capacity);
+        this.load = new CarryLoad(
+            { front: this.rig.holdAnchor, back: this.rig.backAnchor }, opts.capacity);
     }
 
     /** Sets this frame's movement intent. Any magnitude; it gets normalised. */
@@ -138,7 +148,13 @@ export class Actor {
             if (this._cutIn <= 0) this._landCut();
         }
 
-        animateCharacter(this.rig, dt, this._speed01);
+        // Away while the paws are under a crate — the tool is mounted on the
+        // right one, so it would otherwise be held through the crate — or while
+        // the caller says so.
+        const inArms = this.load.inArms;
+        if (this.rig.tool) this.rig.tool.visible = !inArms && !this.stowTool;
+
+        animateCharacter(this.rig, dt, this._speed01, inArms);
         this.load.update(dt);
     }
 
