@@ -26,6 +26,31 @@ interface CarrotSlot {
  * and leaves) rather than ~750 individual meshes — the whole field is two draw
  * calls, and harvesting is a matrix write rather than a scene-graph edit.
  */
+/**
+ * ─── How high the field stands ───────────────────────────────────────────────
+ *
+ * The field is TILLED GROUND, not a platform dropped on the lawn: all three
+ * layers land within a couple of centimetres of the grass plane, each just
+ * proud of the one below so the beds still read as beds. It used to build up
+ * to 0.37 above the plane, which from this camera looked like a slab.
+ *
+ * None of them sits at exactly 0 — the grass plane is there, and coplanar faces
+ * z-fight. The boxes keep their old thicknesses and simply hang below the
+ * ground, where nothing can see them; only these top faces show.
+ */
+/** Dark tilled base, showing between the plots as soil paths. */
+const PATH_TOP = 0.006;
+/** The lighter bed each plot is built on, showing as a border around its top. */
+const BED_TOP = 0.014;
+/** Top surface of a plot — carrots sit on this. */
+export const PLOT_TOP = 0.022;
+/**
+ * Height a just-cut carrot leaves the ground from, before arcing to the basket.
+ * Derived from the surface it was standing in, so sinking the field cannot
+ * leave carrots setting off from mid-air.
+ */
+export const CARROT_PICK_Y = PLOT_TOP + 0.08;
+
 export class CarrotField {
     /** Static geometry (soil beds); the caller adds this to the THREE scene. */
     readonly ground = new THREE.Group();
@@ -43,9 +68,6 @@ export class CarrotField {
     private _q = new THREE.Quaternion();
     private _v = new THREE.Vector3();
     private _s = new THREE.Vector3();
-
-    /** Top surface of a plot — carrots sit on this. */
-    private static readonly PLOT_TOP = 0.34;
 
     constructor(scene: Scene) {
         const rng = makeRng(0x1337);
@@ -65,7 +87,7 @@ export class CarrotField {
         // as soil paths rather than grass.
         this.ground.add(at(
             box(this.maxX - this.minX, 0.18, this.maxZ - this.minZ, C.SOIL),
-            (this.minX + this.maxX) / 2, 0.09, (this.minZ + this.maxZ) / 2,
+            (this.minX + this.maxX) / 2, PATH_TOP - 0.09, (this.minZ + this.maxZ) / 2,
         ));
 
         for (let c = 0; c < cols; c++) {
@@ -73,8 +95,8 @@ export class CarrotField {
                 const px = originX + c * strideX;
                 const pz = originZ + r * strideZ;
 
-                this.ground.add(at(box(plotW, 0.3, plotD, C.SOIL_LIGHT), px, 0.19, pz));
-                this.ground.add(at(box(plotW * 0.9, 0.06, plotD * 0.9, C.SOIL), px, CarrotField.PLOT_TOP, pz));
+                this.ground.add(at(box(plotW, 0.3, plotD, C.SOIL_LIGHT), px, BED_TOP - 0.15, pz));
+                this.ground.add(at(box(plotW * 0.9, 0.06, plotD * 0.9, C.SOIL), px, PLOT_TOP - 0.03, pz));
 
                 for (let cc = 0; cc < carrotCols; cc++) {
                     for (let cr = 0; cr < carrotRows; cr++) {
@@ -238,7 +260,7 @@ export class CarrotField {
             // in the soil and the same carrot in a basket are the same size.
             const k = g * LOOSE_CARROT_SCALE;
             this._s.set(k, k, k);
-            this._v.set(s.x, CarrotField.PLOT_TOP + 0.03, s.z);
+            this._v.set(s.x, PLOT_TOP, s.z);
             this._m.compose(this._v, this._q, this._s);
             rootMesh.setMatrixAt(i, this._m);
             leafMesh.setMatrixAt(i, this._m);

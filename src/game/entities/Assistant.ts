@@ -3,7 +3,7 @@ import { Scene } from 'noonengine';
 import { ASSISTANT, CARRY, HARVEST, MACHINE, STATIONS } from '../Config.ts';
 import { FARMER_COLORS, SELLER_COLORS, giveKukri } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
-import type { CarrotField } from '../world/CarrotField.ts';
+import { CARROT_PICK_Y, type CarrotField } from '../world/CarrotField.ts';
 import type { Production } from '../stations/Production.ts';
 import type { ShopRow } from '../stations/Shop.ts';
 import type { CashField } from '../stations/Cash.ts';
@@ -99,7 +99,7 @@ export class FarmerAssistant extends Assistant {
                 }
                 this.sweep(() => {
                     this.ctx.field.cutAt(ripe).forEach((spot, i) => {
-                        this.load.push('carrot', new THREE.Vector3(spot.x, 0.45, spot.z),
+                        this.load.push('carrot', new THREE.Vector3(spot.x, CARROT_PICK_Y, spot.z),
                             HARVEST.settle + i * HARVEST.stagger);
                     });
                 });

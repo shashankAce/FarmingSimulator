@@ -13,7 +13,7 @@ import { at, rot } from './procgen/Primitives.ts';
 import type { IconKind } from './procgen/Icons.ts';
 
 import { buildEnvironment } from './world/Environment.ts';
-import { CarrotField } from './world/CarrotField.ts';
+import { CARROT_PICK_Y, CarrotField } from './world/CarrotField.ts';
 import { Zone } from './world/Zones.ts';
 import { debugBounds, debugRadius, obstacles } from './world/Obstacles.ts';
 import { makeDropIndicator, makeGroundArrow, updateDropIndicator } from './world/Indicators.ts';
@@ -30,8 +30,6 @@ import { Joystick } from './ui/Joystick.ts';
 import { DropButton } from './ui/DropButton.ts';
 
 /** A purchasable pad: hiring staff, or a machine tier. */
-/** Height a harvested carrot leaves the ground from, before arcing to the basket. */
-const CARROT_LIFT = 0.45;
 
 interface UpgradeSlot {
     zone: Zone;
@@ -621,7 +619,7 @@ export class FarmScene extends Scene {
         who.sweep(() => {
             const cut = this._field.cutAt(ripe);
             cut.forEach((spot, i) => {
-                who.load.push('carrot', new THREE.Vector3(spot.x, CARROT_LIFT, spot.z),
+                who.load.push('carrot', new THREE.Vector3(spot.x, CARROT_PICK_Y, spot.z),
                     HARVEST.settle + i * HARVEST.stagger);
             });
             this._state.totalHarvested += cut.length;
