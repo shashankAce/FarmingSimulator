@@ -158,6 +158,16 @@ export class Actor {
         this.load.update(dt);
     }
 
+    /**
+     * Mid-harvest: a swing has been asked for whose blade has not landed yet,
+     * or what it cut is still on its way into the crate. Nothing is lost by
+     * moving off — the items track the crate — but they trail through the air
+     * from the ground they came out of, so anything that can wait should.
+     */
+    get midHarvest(): boolean {
+        return this._onCut !== null || this.load.isSettling;
+    }
+
     /** Runs the pending cut, if any. */
     private _landCut(): void {
         const cut = this._onCut;

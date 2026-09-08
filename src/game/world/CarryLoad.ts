@@ -185,6 +185,16 @@ export class CarryLoad {
     }
 
     /**
+     * True while cut items are still coming in — lying on the ground waiting
+     * their turn, or in the air.
+     *
+     * The launch point is nailed to the soil the item grew in, so anyone who
+     * walks off mid-intake drags a stream of goods through the air behind them.
+     * Whoever can choose to stand still should ask this before moving on.
+     */
+    get isSettling(): boolean { return this._picked.length > 0; }
+
+    /**
      * True while the load is held out in FRONT — the character's arms are under
      * it, so it drives the carry pose. False for a load on the back, and false
      * when empty.

@@ -78,7 +78,13 @@ export class FarmerAssistant extends Assistant {
             }
             case 'harvesting': {
                 this.setMove(0, 0);
-                if (!this.load.accepts('carrot')) { this._phase = 'to-juicer'; break; }
+                // Full — but stay put until the last cut has actually gone in.
+                // Walking off mid-intake strings the carrots out behind them,
+                // since each one sets off from the ground it grew in.
+                if (!this.load.accepts('carrot')) {
+                    if (!this.midHarvest) this._phase = 'to-juicer';
+                    break;
+                }
 
                 // Its own clock, not the shared transfer tick: one sweep of the
                 // blade takes `HARVEST.interval` and takes everything it reaches.
@@ -92,7 +98,13 @@ export class FarmerAssistant extends Assistant {
                     this.x, this.z, HARVEST.radius, this.yaw,
                     (HARVEST.arcDeg * Math.PI) / 360, room);
                 if (ripe.length === 0) {
-                    // Patch exhausted: either move on, or go deliver what we have.
+                    // Patch exhausted: either move on, or go deliver what we
+                    // have — once whatever is still in the air has landed.
+                    // The blade's clock is put back to zero so the wait is
+                    // re-checked next frame rather than on the next swing,
+                    // which would idle here for up to `HARVEST.interval`
+                    // after the last carrot went in.
+                    if (this.midHarvest) { this.harvestTimer = 0; break; }
                     this._target = null;
                     this._phase = this.load.isEmpty ? 'to-field' : 'to-juicer';
                     break;
