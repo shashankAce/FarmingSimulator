@@ -109,17 +109,11 @@ export class ShopStand {
         return this._till.length + this.queue.pendingPayouts < this._tillSlots.length;
     }
 
-    /** 0..1 how full the counter is, for the pad's fill bar. */
-    get tillFullness(): number {
-        return this._tillSlots.length === 0 ? 0 : this._till.length / this._tillSlots.length;
-    }
     get isBuilding(): boolean { return this._building; }
     get frontWants(): number { return this.queue.frontWants; }
 
-    /** 0..1 unlock progress, for the pad's fill bar. */
-    get unlockProgress(): number {
-        return this.cost <= 0 ? 1 : Math.min(1, this.paid / this.cost);
-    }
+    /** 0..1 how stocked this stall is, for the pad's fill bar. */
+    get stockFullness(): number { return this.stock.fullness; }
 
     /** Starts the build animation. Idempotent. */
     build(): void {

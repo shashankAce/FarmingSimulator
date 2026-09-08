@@ -55,8 +55,8 @@ export const GROUND_SIZE = 180;
 export const FIELD = {
     originX: 1.5,
     originZ: -12,
-    cols: 6,
-    rows: 8,
+    cols: 4,
+    rows: 5,
     plotW: 2.9,
     plotD: 2.9,
     gap: 0.35,
@@ -64,7 +64,7 @@ export const FIELD = {
     carrotCols: 3,
     carrotRows: 4,
     /** Seconds before a harvested carrot grows back. */
-    regrowTime: 9,
+    regrowTime: 15,
 };
 
 /** Outer extent of the tilled area, including the soil border around the plots. */
@@ -79,7 +79,39 @@ export function fieldBounds(): { minX: number; maxX: number; minZ: number; maxZ:
     };
 }
 
-/** Where each station sits. `r` is the trigger radius / half-extent of its floor marker. */
+/** Footprint of one floor trigger, as full extents (not half-extents). */
+export interface PadSize {
+    w: number;
+    d: number;
+}
+
+/**
+ * ─── ZONE SIZES ──────────────────────────────────────────────────────────────
+ * Every floor trigger's footprint, in one block. "Make the pads bigger" is one
+ * intent, and it used to be four edits in four unrelated sections of this file.
+ *
+ * `w` is the world-X extent and `d` the world-Z extent. `Zone` is axis-aligned
+ * and does NOT rotate with whatever it belongs to, so for the west-fence stalls
+ * `shop.w` is the depth in from the counter and `shop.d` is the span along the
+ * fence — not the other way round.
+ *
+ * One knock-on worth knowing before tuning these: the pictogram is scaled to
+ * `min(w, d)`, so a pad made narrow shrinks its icon even if it grows deeper.
+ * The progress fill always rises up the screen along `d`, whatever the shape.
+ */
+export const ZONE = {
+    /** Starting cash on the ground — the first thing the player picks up. */
+    startCash: { w: 4.4, d: 3.0 } as PadSize,
+    /** Tip carrots into the juicer. */
+    juicerIn: { w: 3.8, d: 3.0 } as PadSize,
+    /** Lift a filled rack off the stand. */
+    rackPickup: { w: 3.8, d: 3.0 } as PadSize,
+    /** Serving pad at a stall, and its construction plot before that. */
+    shop: { w: 1.7, d: 3.0 } as PadSize,
+    /** Hire and upgrade pads. Deliberately small: they sit among the stations. */
+    hire: { w: 1.7, d: 2 } as PadSize,
+};
+
 /**
  * ─── PRODUCTION LINE ─────────────────────────────────────────────────────────
  * The juicer, its conveyor and the rack stand are ONE machine. `PLANT.origin`
@@ -103,8 +135,6 @@ export const PLANT = {
     padOffset: 3.5,
     /** Speed-upgrade pad, relative to the origin. */
     upgradePad: { dx: -4.1, dz: 3.6 },
-    padW: 3.8,
-    padD: 3.0,
 };
 
 /**
@@ -119,13 +149,13 @@ export const PLANT = {
  */
 export const STATIONS = {
     /** Starting cash on the ground — the first thing the player ever picks up. */
-    startCash: { x: -8, z: 12, w: 4.4, d: 3.0, icon: 'money' as IconKind },
+    startCash: { x: -8, z: 12, ...ZONE.startCash, icon: 'money' as IconKind },
     /** The machine body itself (not walkable). */
     juicer: { x: PLANT.origin.x, z: PLANT.origin.z },
     /** Drop carrots here to feed the juicer. */
     juicerIn: {
         x: PLANT.origin.x, z: PLANT.origin.z + PLANT.padOffset,
-        w: PLANT.padW, d: PLANT.padD, icon: 'carrot' as IconKind, showProgress: true,
+        ...ZONE.juicerIn, icon: 'carrot' as IconKind, showProgress: true,
     },
     /** Conveyor runs from the juicer westward to the rack stand. */
     conveyor: {
@@ -138,7 +168,7 @@ export const STATIONS = {
     /** Lift a filled rack off the stand here. */
     rackPickup: {
         x: PLANT.origin.x + PLANT.rackStand, z: PLANT.origin.z + PLANT.padOffset,
-        w: PLANT.padW, d: PLANT.padD, icon: 'bottle' as IconKind, showProgress: true,
+        ...ZONE.rackPickup, icon: 'bottle' as IconKind, showProgress: true,
     },
 };
 
@@ -444,9 +474,6 @@ export const VILLAGE = {
  * tilled area itself.
  */
 export const HIRE = {
-    /** Deliberately small: these pads sit among the working stations. */
-    padW: 1.7,
-    padD: 1.7,
     /** Escalating price per additional hire, indexed by how many you already have. */
     farmhandCosts: [250, 700, 1500],
     shopkeeperCosts: [600, 1400, 2800],

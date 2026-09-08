@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { DEBUG, Input, Label, Node, Scene, display, inputListener } from 'noonengine';
+import { DEBUG, Input, Node, Scene, display, inputListener } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
 import {
-    BLOCKERS, CAMERA, ECONOMY, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, SHOP, STATIONS, YARD,
-    farmhandPads, validateLayout,
+    BLOCKERS, CAMERA, ECONOMY, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, STATIONS, YARD,
+    ZONE, farmhandPads, validateLayout,
 } from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
@@ -39,14 +39,6 @@ interface UpgradeSlot {
     /** Whether the pad should exist at all right now. */
     available: () => boolean;
     onComplete: () => void;
-}
-
-/** A 2D label pinned to a world position, shown only when `text()` returns one. */
-interface WorldLabel {
-    node: Node;
-    label: Label;
-    world: THREE.Vector3;
-    text: () => string | null;
 }
 
 /**
@@ -87,7 +79,6 @@ export class FarmScene extends Scene {
     /** Collider overlay, DEBUG only. Toggled with C. */
     private _colliderView: THREE.Group | null = null;
     private _playerRing: THREE.Line | null = null;
-    private _worldLabels: WorldLabel[] = [];
 
     onLoad(): void {
         const sys = this.sceneSystem3D;
@@ -184,7 +175,6 @@ export class FarmScene extends Scene {
         this._refreshObjective();
         this._updateIndicators(step);
         this._updateCamera(step);
-        this._updateWorldLabels();
         this._shops.updateBubbles(this.sceneSystem3D);
 
         if (this._playerRing) this._playerRing.position.set(this._player.x, 0, this._player.z);
@@ -316,8 +306,8 @@ export class FarmScene extends Scene {
         // One pad per stand: construction site while locked, serving pad once open.
         for (const stand of this._shops.stands) {
             const zone = new Zone(
-                `shop${stand.index}`, stand.sellPad.x, stand.sellPad.z, SHOP.padW, SHOP.padD,
-                { icon: 'shop', showProgress: true },
+                `shop${stand.index}`, stand.sellPad.x, stand.sellPad.z, ZONE.shop.w, ZONE.shop.d,
+                { icon: 'shop', showProgress: true, showAmount: true },
             );
             this._shopZones.push(zone);
             sys.scene.add(zone.marker);
@@ -336,10 +326,14 @@ export class FarmScene extends Scene {
         const sys = this.sceneSystem3D;
 
         /**
-         * The price is written on the grass beside its own pad rather than on a
-         * signpost. A post standing next to a stall visually merges with it, and
-         * wherever it went it sat on somebody's walking line into the pad.
-         * `makeSignpost()` is kept in `procgen/` for other uses.
+         * The price is painted flat INSIDE the pad, as extruded digits rather
+         * than screen text. A 2D label — whether over the pad or on a signpost
+         * beside it — keeps a constant screen size as the pad recedes and never
+         * settles into the scene; a signpost also merged with the stall and sat
+         * on somebody's walking line. `makeSignpost()` is kept in `procgen/`.
+         *
+         * The slot's `title()` no longer appears anywhere: the icon says which
+         * hire this is, so spelling it out again was noise on the grass.
          */
         const makeSlot = (
             pos: { x: number; z: number },
@@ -347,34 +341,10 @@ export class FarmScene extends Scene {
             slot: Omit<UpgradeSlot, 'zone' | 'paid'>,
         ): UpgradeSlot => {
             const zone = new Zone(`slot${this._slots.length}`, pos.x, pos.z,
-                HIRE.padW, HIRE.padD, { icon, showProgress: true });
+                ZONE.hire.w, ZONE.hire.d, { icon, showProgress: true, showAmount: true });
             sys.scene.add(zone.marker);
 
-            const node = new Node();
-            const label = node.addComponent(Label);
-            label.fontSize = 19;
-            label.fontWeight = 800;
-            label.color = '#ffffff';
-            label.textAlign = 'center';
-            label.dynamic = true;
-            node.zIndex = 998;
-            this.addChild(node);
-
             const full: UpgradeSlot = { ...slot, zone, paid: 0 };
-            this._worldLabels.push({
-                node, label,
-                // On the grass below the pad. The label is centred on this
-                // point and runs to two lines, so it needs real clearance from
-                // the near edge or its first line sits on the marking.
-                world: new THREE.Vector3(pos.x, 0.05, pos.z + HIRE.padD / 2 + 1.15),
-                text: () => {
-                    if (!full.available()) return null;
-                    const cost = full.cost();
-                    return cost === null ? null
-                        : `${full.title()}\n$${Math.max(0, Math.ceil(cost - full.paid))}`;
-                },
-            });
-
             this._slots.push(full);
             return full;
         };
@@ -448,6 +418,7 @@ export class FarmScene extends Scene {
             const cost = slot.cost();
             slot.zone.occupied = on && slot.zone.contains(x, z);
             slot.zone.setProgress(cost === null || cost <= 0 ? 1 : slot.paid / cost);
+            slot.zone.setAmount(cost === null ? null : Math.max(0, Math.ceil(cost - slot.paid)));
             slot.zone.update(dt);
         }
 
@@ -455,9 +426,23 @@ export class FarmScene extends Scene {
             const zone = this._shopZones[i];
             const stand = this._shops.stands[i];
             zone.occupied = zone.contains(x, z);
-            // While locked the bar is the price; once open it's how full the
-            // till is, since that's what actually stops the stall.
-            zone.setProgress(stand.isOpen ? stand.tillFullness : stand.unlockProgress);
+
+            // A locked plot is a price tag: the icon and the remaining cost,
+            // and nothing in the bar. The bar belongs to stock, and a stall
+            // that does not exist has none — which is also what used to make
+            // the first stall read as permanently full, since its cost is 0 and
+            // "nothing left to pay" came out of the old bar as 100%.
+            zone.setIconVisible(!stand.isOpen);
+            zone.setSolid(stand.isOpen);
+            if (stand.isOpen) {
+                zone.setProgress(stand.stockFullness);
+                // Takings sitting on the counter, so a stall worth walking to
+                // says so from across the yard.
+                zone.setAmount(stand.tillValue > 0 ? stand.tillValue : null);
+            } else {
+                zone.setProgress(0);
+                zone.setAmount(Math.max(0, Math.ceil(stand.cost - stand.paid)));
+            }
             zone.update(dt);
         }
     }
@@ -712,20 +697,4 @@ export class FarmScene extends Scene {
         this._sun.target.updateMatrixWorld();
     }
 
-    private _updateWorldLabels(): void {
-        for (const entry of this._worldLabels) {
-            const text = entry.text();
-            if (text === null) {
-                entry.node.setPosition({ x: -9999, y: -9999 });
-                continue;
-            }
-            const screen = this.sceneSystem3D.worldToDesign(entry.world, display);
-            if (!screen) {
-                entry.node.setPosition({ x: -9999, y: -9999 });
-                continue;
-            }
-            entry.label.text = text;
-            entry.node.setPosition({ x: screen.x, y: screen.y });
-        }
-    }
 }

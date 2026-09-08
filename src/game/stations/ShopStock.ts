@@ -43,6 +43,12 @@ export class ShopStock {
 
     get hasRoom(): boolean { return this._racks.length < this._maxRacks; }
 
+    /** 0..1 how stocked this stall is, counting empty rack slots as space. */
+    get fullness(): number {
+        const capacity = this._maxRacks * RACK_CAPACITY;
+        return capacity === 0 ? 0 : this.bottles / capacity;
+    }
+
     /** Sets a filled rack down in the next free spot. */
     addCrate(count: number): boolean {
         if (!this.hasRoom || count <= 0) return false;
