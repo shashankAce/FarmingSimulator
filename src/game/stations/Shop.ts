@@ -25,6 +25,8 @@ import type { GameState } from '../GameState.ts';
  */
 /** Size the takings are shown at on the collect pad. */
 const TILL_SCALE = 0.75;
+/** Scratch for the carry anchor; `serveTick` runs every transfer tick. */
+const _handPos = new THREE.Vector3();
 
 export class ShopStand {
     readonly group = new THREE.Group();
@@ -152,8 +154,11 @@ export class ShopStand {
         if (!this.isOpen) return false;
 
         if (load && load.kind === 'bottle' && this.stock.hasRoom) {
+            // Read the hands BEFORE the crate leaves them — `popCrate` unparents
+            // it, and the anchor is what tells us where the throw starts.
+            const from = load.handsWorld(_handPos);
             const count = load.popCrate();
-            if (count > 0) { this.stock.addCrate(count); return true; }
+            if (count > 0) { this.stock.addCrate(count, from); return true; }
         }
 
         return this._sellOne();

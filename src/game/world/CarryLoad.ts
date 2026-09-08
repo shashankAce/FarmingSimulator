@@ -65,6 +65,15 @@ export class CarryLoad {
     /** True while anything is held — drives the character's carry pose. */
     get isCarrying(): boolean { return this._stack.length > 0; }
 
+    /**
+     * World position of the hands, for anything that needs to animate a crate
+     * away from where it was actually being carried rather than from the
+     * character's feet.
+     */
+    handsWorld(out: THREE.Vector3): THREE.Vector3 {
+        return this._anchor.getWorldPosition(out);
+    }
+
     /** Room for one more item of `kind`, either in an open crate or a new one. */
     accepts(kind: ItemKind): boolean {
         if (!this.isEmpty && this.kind !== kind) return false;

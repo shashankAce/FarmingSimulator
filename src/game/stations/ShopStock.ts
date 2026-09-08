@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, RACK_CAPACITY, makeBottleRack } from '../procgen/Containers.ts';
 import { makeBottle } from '../procgen/Machines.ts';
 
+/** Flight speed and hop height of a crate tossed onto a counter. */
+const FLIGHT_RATE = 2.6;
+const FLIGHT_ARC = 0.9;
+
 interface GroundRack {
     group: THREE.Group;
     slots: THREE.Vector3[];
@@ -31,7 +35,17 @@ export class ShopStock {
     private _baseY: number;
     private _pool: Array<{ group: THREE.Group; slots: THREE.Vector3[] }> = [];
     private _bottlePool: THREE.Group[] = [];
-    private _spring: Array<{ g: THREE.Group; t: number }> = [];
+    /**
+     * Crates mid-flight from a carrier's hands onto the counter.
+     *
+     * `from` is null for one that simply appeared, which still gets the scale
+     * pop but no travel — the animation has to degrade to the old behaviour
+     * when nobody told us where it came from.
+     */
+    private _spring: Array<{
+        g: THREE.Group; t: number;
+        from: THREE.Vector3 | null; to: THREE.Vector3;
+    }> = [];
 
     constructor(origin: { x: number; z: number }, yaw: number, maxRacks = 3, baseY = 0) {
         this._origin = origin;
@@ -65,8 +79,15 @@ export class ShopStock {
         return capacity === 0 ? 0 : this.bottles / capacity;
     }
 
-    /** Sets a filled rack down in the next free spot. */
-    addCrate(count: number): boolean {
+    /**
+     * Sets a filled rack down in the next free spot.
+     *
+     * `from` is where it was being carried, in world space. Given one, the
+     * crate ARCS out of the carrier's hands onto its slot rather than appearing
+     * on the counter — which read as teleporting, since the hand-off and the
+     * landing were the same instant.
+     */
+    addCrate(count: number, from?: THREE.Vector3): boolean {
         if (!this.hasRoom || count <= 0) return false;
 
         const built = this._pool.pop() ?? makeBottleRack();
@@ -74,8 +95,9 @@ export class ShopStock {
         built.group.scale.setScalar(0.01);
 
         // Stacked in one spot, squared up with the counter under them.
-        built.group.position.set(
+        const to = new THREE.Vector3(
             this._origin.x, this._stackY(this._racks.length), this._origin.z);
+        built.group.position.copy(from ?? to);
         built.group.rotation.y = this._yaw;
         this.group.add(built.group);
 
@@ -90,7 +112,7 @@ export class ShopStock {
         }
 
         this._racks.push(rack);
-        this._spring.push({ g: built.group, t: 0 });
+        this._spring.push({ g: built.group, t: 0, from: from ? from.clone() : null, to });
         return true;
     }
 
@@ -120,10 +142,25 @@ export class ShopStock {
     update(dt: number): void {
         for (let i = this._spring.length - 1; i >= 0; i--) {
             const s = this._spring[i];
-            s.t = Math.min(1, s.t + dt * 7);
+            // A travelling crate takes longer than one that only pops into
+            // size: at the scale rate the throw is over before it is read.
+            s.t = Math.min(1, s.t + dt * (s.from ? FLIGHT_RATE : 7));
             const p = s.t;
-            s.g.scale.setScalar(Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)) * CRATE_SCALE);
-            if (s.t >= 1) { s.g.scale.setScalar(CRATE_SCALE); this._spring.splice(i, 1); }
+            s.g.scale.setScalar(
+                Math.max(0.01, 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2)) * CRATE_SCALE);
+
+            if (s.from) {
+                // Straight line across, plus an arc peaking mid-flight — the
+                // same toss `CashField` uses for a payout.
+                s.g.position.lerpVectors(s.from, s.to, p);
+                s.g.position.y += Math.sin(p * Math.PI) * FLIGHT_ARC;
+            }
+
+            if (s.t >= 1) {
+                s.g.scale.setScalar(CRATE_SCALE);
+                s.g.position.copy(s.to);
+                this._spring.splice(i, 1);
+            }
         }
     }
 
