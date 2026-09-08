@@ -334,7 +334,7 @@ export const SHOP = {
     /** Height of one full grid, i.e. how far the next layer sits above it. */
     tillLayer: 0.16,
     /** Crates that can be set down at one stall. */
-    stockCrates: 3,
+    stockCrates: 6,
     /** From the stall origin out to the counter face. */
     counterOffset: 1.7,
     /**
@@ -639,6 +639,17 @@ export const CARRY = {
     basket: { cols: 3, rows: 2 },
     /** Bottles in a rack. */
     rack: { cols: 3, rows: 2 },
+    /**
+     * Vertical gap between stacked crates, in crate-local units — ONE number
+     * for the pile in a character's arms and the pile on a stall's counter, so
+     * the two can never drift apart.
+     *
+     * It has to clear the contents standing out of the crate below, not just
+     * that crate's rim: a rack of bottles reaches 0.77 of a crate, so below
+     * that the bottles poke up through the floor of the crate above. The slack
+     * over 0.77 is the visible air between them.
+     */
+    pitch: { bottle: 0.86, carrot: 0.78 },
 };
 
 export const ECONOMY = {

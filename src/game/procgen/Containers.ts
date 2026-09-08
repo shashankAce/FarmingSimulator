@@ -22,9 +22,8 @@ import { at, box, rot } from './Primitives.ts';
 export const CRATE_SCALE = 0.58;
 /** Contents scale, relative to the crate they sit in. */
 export const CONTENT_SCALE = { bottle: 0.78, carrot: 0.86 };
-/** Vertical pitch when crates are stacked, in crate-local units. Clears the
- *  contents sticking out of the crate below. */
-export const CRATE_PITCH = { bottle: 0.86, carrot: 0.78 };
+/** Vertical pitch when crates are stacked, in crate-local units. See `CARRY.pitch`. */
+export const CRATE_PITCH = CARRY.pitch;
 /** World scale of a loose bottle, matched to one sitting in a crate. */
 export const LOOSE_BOTTLE_SCALE = CRATE_SCALE * CONTENT_SCALE.bottle;
 
