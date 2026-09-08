@@ -72,6 +72,20 @@ export const PILL = { w: 140, h: 48, stroke: 4 };
  */
 export const HUD = { mobileScale: 0.75 };
 
+/**
+ * Virtual joystick, in design pixels.
+ *
+ * `radius` is the stick's full travel, so it is a FEEL setting as much as a
+ * size one: it sets how far the thumb has to move for full tilt, and the
+ * reading is `distance / radius`. A larger ring is gentler and needs more room;
+ * a smaller one is twitchier.
+ *
+ * Deliberately not run through `hudScale()` like the panels are. Those shrink
+ * on a phone to win back screen width; a touch control shrinking on the only
+ * device that uses it is the wrong trade.
+ */
+export const JOYSTICK = { radius: 96, knob: 46 };
+
 /** `HUD.mobileScale` on a phone, 1 on desktop and tablet. */
 export function hudScale(): number {
     return display.isMobile() ? HUD.mobileScale : 1;
@@ -308,11 +322,15 @@ export const SHOP = {
      * They fill a `tillCols` x `tillRows` grid centred on the pad and then keep
      * stacking in layers on top of it, so `tillSlots` is two full grids' worth.
      */
-    tillSlots: 12,
+    tillSlots: 18,
     tillCols: 2,
     tillRows: 3,
-    /** Gap between rows of takings, front to back. */
-    tillRowGap: 0.42,
+    /**
+     * Gap between neighbouring bundles of takings, both ways. Spacing is
+     * derived from the bundle plus this, not from the pad — sized off the pad,
+     * the columns spread to fill it and the pile stopped reading as a pile.
+     */
+    tillGap: 0.05,
     /** Height of one full grid, i.e. how far the next layer sits above it. */
     tillLayer: 0.16,
     /** Crates that can be set down at one stall. */

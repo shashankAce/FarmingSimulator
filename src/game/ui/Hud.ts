@@ -225,7 +225,7 @@ export class Hud {
             x: right - (PILL.w / 2 + MARGIN) * s,
             y: top - (PILL.h / 2 + MARGIN) * s,
         });
-        this._objWrap.setPosition({ x: centerX, y: top - 150 * s });
+        this._objWrap.setPosition({ x: centerX, y: top - 200 * s });
         this._stockPill.setPosition({
             x: left + (STOCK.w / 2 + MARGIN) * s,
             y: top - (STOCK.h / 2 + MARGIN) * s,

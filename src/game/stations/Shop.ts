@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Scene } from 'noonengine';
-import { ECONOMY, QUEUE, SHOP, SHOPS, ZONE, resolveShop, type ShopPlacement } from '../Config.ts';
-import { makeCashStack } from '../procgen/Machines.ts';
+import { ECONOMY, QUEUE, SHOP, SHOPS, resolveShop, type ShopPlacement } from '../Config.ts';
+import { CASH_STACK, makeCashStack } from '../procgen/Machines.ts';
 import { ShopStock } from './ShopStock.ts';
 import { obstacles } from '../world/Obstacles.ts';
 import type { CarryLoad } from '../world/CarryLoad.ts';
@@ -23,6 +23,9 @@ import type { GameState } from '../GameState.ts';
  * by standing on their own serving pad, which doubles as the construction pad
  * until the stall is up.
  */
+/** Size the takings are shown at on the collect pad. */
+const TILL_SCALE = 0.75;
+
 export class ShopStand {
     readonly group = new THREE.Group();
     readonly index: number;
@@ -243,7 +246,10 @@ export class ShopStand {
         const cols = Math.max(1, SHOP.tillCols);
         const rows = Math.max(1, SHOP.tillRows);
         const perLayer = cols * rows;
-        const step = ZONE.collect.w / cols;
+        // Spaced off the bundle, so the grid packs tight whatever size the pad
+        // happens to be.
+        const stepX = CASH_STACK.w * TILL_SCALE + SHOP.tillGap;
+        const stepZ = CASH_STACK.d * TILL_SCALE + SHOP.tillGap;
         const cos = Math.cos(this.place.padYaw);
         const sin = Math.sin(this.place.padYaw);
 
@@ -251,8 +257,8 @@ export class ShopStand {
         for (let i = 0; i < SHOP.tillSlots; i++) {
             // Fill the grid, then start a second layer on top of the first.
             const n = i % perLayer;
-            const lx = (n % cols - (cols - 1) / 2) * step;
-            const lz = (Math.floor(n / cols) - (rows - 1) / 2) * SHOP.tillRowGap;
+            const lx = (n % cols - (cols - 1) / 2) * stepX;
+            const lz = (Math.floor(n / cols) - (rows - 1) / 2) * stepZ;
             slots.push(new THREE.Vector3(
                 pad.x + cos * lx + sin * lz,
                 Math.floor(i / perLayer) * SHOP.tillLayer,
@@ -284,7 +290,7 @@ export class ShopStand {
 
         const obj = this._tillPool.pop() ?? makeCashStack();
         obj.visible = true;
-        obj.scale.setScalar(0.75);
+        obj.scale.setScalar(TILL_SCALE);
         obj.position.copy(this._tillSlots[this._till.length]);
         // Square to the grid, which is itself turned with the stall. Pooled
         // stacks carry the last angle they were given, so this has to be
