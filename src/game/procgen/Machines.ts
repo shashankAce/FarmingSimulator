@@ -57,12 +57,22 @@ export function makeJuicer(): { group: THREE.Group; wheel: THREE.Mesh; funnel: T
     g.add(spout);
 
     // Flywheel on the side — spun while the machine is working.
-    const wheel = at(cyl(0.75, 0.75, 0.18, 8, C.METAL_DARK), 1.75, 1.5, 0.0);
-    rot(wheel, 0, 0, Math.PI / 2);
-    g.add(wheel);
+    //
+    // The tilt goes on a HOLDER and the spin on the wheel itself, and they
+    // cannot share a node. Euler order 'XYZ' applies Z before Y, so tilting
+    // with `rotation.z` and then spinning with `rotation.y` turns the disc
+    // about the machine's vertical axis rather than its own axle — the wheel
+    // swept through its own body instead of rotating. The belt rollers get
+    // away with the same shape only because their tilt is on X, which the same
+    // order applies AFTER the spin.
+    const hub = at(rot(new THREE.Group(), 0, 0, Math.PI / 2), 1.75, 1.5, 0);
+    const wheel = cyl(0.75, 0.75, 0.18, 8, C.METAL_DARK);
+    hub.add(wheel);
+    g.add(hub);
     for (let i = 0; i < 4; i++) {
+        // Spokes ride the wheel, so they turn with it. Long in Z and fanned
+        // about the wheel's own axis, which is its local Y.
         const spoke = box(0.1, 0.1, 1.35, C.METAL);
-        rot(spoke, 0, 0, 0);
         spoke.rotation.y = (i / 4) * Math.PI;
         wheel.add(spoke);
     }
