@@ -101,9 +101,18 @@ export function makeCobblePath(
             for (let l = 0; l < lanes; l++) {
                 const off = (l / (lanes - 1) - 0.5) * width + rangeOf(rng, -0.12, 0.12);
                 const jx = rangeOf(rng, -0.1, 0.1), jz = rangeOf(rng, -0.1, 0.1);
-                const tile = hexTile(rangeOf(rng, 0.4, 0.5), 0.18,
-                    rng() < 0.5 ? C.PATH_STONE : C.PATH_STONE_ALT);
-                at(tile, cx + px * off + jx, 0.055, cz + pz * off + jz);
+                // Radius quantised to three sizes rather than left a free
+                // float: `hexTile` caches geometry by its dimensions, so a
+                // random radius per slab meant every slab on every path built
+                // and kept a geometry of its own, and the cache never hit.
+                const r = 0.4 + Math.floor(rng() * 3) * 0.04;
+                const tile = hexTile(r, 0.18, rng() < 0.5 ? C.PATH_STONE : C.PATH_STONE_ALT);
+                // Slabs overlap by design, and every one used to sit at exactly
+                // 0.055 — so where two crossed, their top faces were coplanar,
+                // the depth buffer had no way to pick a winner, and the pair
+                // flickered as the camera moved. A hair of vertical spread
+                // settles it and is invisible at this scale.
+                at(tile, cx + px * off + jx, 0.055 + rng() * 0.012, cz + pz * off + jz);
                 rot(tile, 0, rng() * Math.PI, 0);
                 g.add(tile);
             }
