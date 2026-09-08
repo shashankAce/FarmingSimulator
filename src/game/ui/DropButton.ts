@@ -1,4 +1,5 @@
 import { Button, GlobalEvents, Graphics, Label, Node, Scene, display, inputListener } from 'noonengine';
+import { FONT_FAMILY } from '../Config.ts';
 
 
 /**
@@ -42,6 +43,7 @@ export class DropButton {
         const labelNode = new Node(0, 0);
         const label = labelNode.addComponent(Label);
         label.text = 'DROP';
+        label.fontFamily = FONT_FAMILY;
         label.fontSize = 34;
         label.fontWeight = 800;
         label.color = '#ffffff';

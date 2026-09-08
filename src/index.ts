@@ -1,15 +1,18 @@
-import { DEBUG, GameEngine, InspectorOverlay, RendererType, ResolutionPolicy, createPlatform } from 'noonengine';
+import { DEBUG, GameEngine, InspectorOverlay, RendererType, ResolutionPolicy, assetCache, createPlatform } from 'noonengine';
 import { ThreeSceneSystem } from 'noonengine/3d';
 
-import { GAME_HEIGHT, GAME_WIDTH } from './game/Config.ts';
+import { FONT_FAMILY, FONT_SRC, GAME_HEIGHT, GAME_WIDTH } from './game/Config.ts';
 import { FarmScene } from './game/FarmScene.ts';
 
 /**
  * FarmingSimulator — bootstrap.
  *
  * Every art asset in this game is generated procedurally from THREE primitives
- * at runtime, so there is nothing in `res/` to preload: the loading "stage" is
- * just the scene building itself, which happens synchronously in `onLoad()`.
+ * at runtime, so the only thing in `res/` to preload is the typeface. It is
+ * awaited BEFORE `runScene`, not alongside it: labels bake their text to a
+ * bitmap the moment they are built, and the pad digits are painted into a
+ * canvas atlas during scene construction — either one built a frame early gets
+ * the browser's fallback font baked in permanently.
  */
 
 // Host-platform wrapper. Must be awaited BEFORE constructing GameEngine.
@@ -35,6 +38,9 @@ if (DEBUG) {
 // anchors to `display.getVisibleRect()` rather than the raw design box, so it
 // tracks whatever survives the crop either way.
 engine.setDesignResolution(GAME_WIDTH, GAME_HEIGHT, ResolutionPolicy.FIXED_HEIGHT);
+
+platform.reportProgress(0.2);
+await assetCache.loadFont(FONT_SRC, FONT_FAMILY, 'gameFont');
 
 platform.reportProgress(1);
 engine.runScene(new FarmScene());

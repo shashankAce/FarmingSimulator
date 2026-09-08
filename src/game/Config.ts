@@ -39,6 +39,18 @@ export const yardCenter = (): { x: number; z: number } => ({
 export const GROUND_SIZE = 180;
 
 /**
+ * The game's one typeface, loaded from `res/fonts` before the scene runs.
+ *
+ * `FONT_FAMILY` is the name it is registered under, not a file path — it goes
+ * to `Label.fontFamily` for the 2D HUD and to a canvas `font` string for the
+ * digits painted on the ground pads. `FONT_SRC` must load through `AssetCache`,
+ * never a CSS `@font-face`: a single-file playable rewrites `res/` paths to
+ * `data:` URIs and only `AssetCache` resolves them at runtime.
+ */
+export const FONT_FAMILY = 'Cherry Bomb One';
+export const FONT_SRC = 'res/fonts/CherryBombOne-Regular.ttf';
+
+/**
  * ─── AGRICULTURAL LAND ───────────────────────────────────────────────────────
  * The carrot field: a `cols` x `rows` grid of raised soil plots.
  *

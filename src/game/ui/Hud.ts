@@ -1,5 +1,16 @@
 import { GlobalEvents, Graphics, Label, Node, Scene, display } from 'noonengine';
+import { FONT_FAMILY } from '../Config.ts';
+import { C } from '../Palette.ts';
 import type { GameState, Objective } from '../GameState.ts';
+
+/** Palette entries are numbers; `Graphics` wants CSS. */
+const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
+
+/** Money pill. Sized to the counter it holds, not to the corner it sits in. */
+const PILL_W = 168;
+const PILL_H = 58;
+/** Pixels per icon unit when rebuilding the `money` pad glyph in the pill. */
+const GLYPH_UNIT = 58;
 
 const OBJECTIVE_TEXT: Record<Objective, string> = {
     'collect-start-cash': 'Grab the cash!',
@@ -39,22 +50,18 @@ export class Hud {
         const pill = new Node();
         this._pill = pill;
         const pillGfx = pill.addComponent(Graphics);
-        pillGfx.setLineWidth(6);
-        pillGfx.drawRoundedRectangle(210, 74, 37, '#5a3a22', '#c9a15e');
+        pillGfx.setLineWidth(5);
+        pillGfx.drawRoundedRectangle(PILL_W, PILL_H, PILL_H / 2, '#5a3a22', '#c9a15e');
         pill.zIndex = 1000;
         scene.addChild(pill);
 
-        // Banknote glyph inside the pill.
-        const note = new Node(-60, 0);
-        const noteGfx = note.addComponent(Graphics);
-        noteGfx.setLineWidth(4);
-        noteGfx.drawRoundedRectangle(54, 36, 8, '#66c65a', '#f4f7e8');
-        pill.addChild(note);
+        pill.addChild(Hud._moneyGlyph(-44));
 
         const moneyNode = new Node(24, 0);
         this._moneyLabel = moneyNode.addComponent(Label);
         this._moneyLabel.text = '0';
-        this._moneyLabel.fontSize = 42;
+        this._moneyLabel.fontFamily = FONT_FAMILY;
+        this._moneyLabel.fontSize = 34;
         this._moneyLabel.fontWeight = 800;
         this._moneyLabel.color = '#ffffff';
         this._moneyLabel.textAlign = 'center';
@@ -83,6 +90,7 @@ export class Hud {
             [this._objectiveLabel, '#ffffff'],
         ] as Array<[Label, string]>) {
             lbl.text = OBJECTIVE_TEXT[state.objective];
+            lbl.fontFamily = FONT_FAMILY;
             lbl.fontSize = 30;
             lbl.fontWeight = 800;
             lbl.color = color;
@@ -94,6 +102,7 @@ export class Hud {
         this._stockNode = stockNode;
         this._stockLabel = stockNode.addComponent(Label);
         this._stockLabel.text = '';
+        this._stockLabel.fontFamily = FONT_FAMILY;
         this._stockLabel.fontSize = 24;
         this._stockLabel.fontWeight = 700;
         this._stockLabel.color = '#ffffff';
@@ -110,6 +119,7 @@ export class Hud {
         this._toastNode.zIndex = 1001;
         this._toastLabel = this._toastNode.addComponent(Label);
         this._toastLabel.text = '';
+        this._toastLabel.fontFamily = FONT_FAMILY;
         this._toastLabel.fontSize = 44;
         this._toastLabel.fontWeight = 800;
         this._toastLabel.color = '#ffe9a8';
@@ -140,6 +150,40 @@ export class Hud {
     }
 
     /**
+     * The banknote from `makeFlatIcon('money')`, rebuilt in 2D at the icon's own
+     * proportions, so the counter in the corner and the pad the cash sits on are
+     * showing the same object. The pad icon's coin is left off: it sits off to
+     * one side, which pushes the note off-centre in a pill this size.
+     *
+     * One node per layer, because a `Graphics` component stores a single shape —
+     * the note is four stacked rectangles and the coin two circles. `zIndex` is
+     * set explicitly rather than trusting child order, since the whole point is
+     * that the smaller layers land on top of the larger ones.
+     */
+    private static _moneyGlyph(x: number): Node {
+        const glyph = new Node(x, 0);
+        let depth = 0;
+
+        const add = (dx: number, dy: number, draw: (g: Graphics) => void): void => {
+            const node = new Node(dx * GLYPH_UNIT, dy * GLYPH_UNIT);
+            draw(node.addComponent(Graphics));
+            node.zIndex = depth++;
+            glyph.addChild(node);
+        };
+        const plate = (w: number, h: number, r: number, fill: number): void =>
+            add(0, 0, g => g.drawRoundedRectangle(
+                w * GLYPH_UNIT, h * GLYPH_UNIT, r * GLYPH_UNIT, css(fill), null));
+        const disc = (r: number, fill: number, dx = 0, dy = 0): void =>
+            add(dx, dy, g => g.drawCircle(r * GLYPH_UNIT, css(fill), null));
+
+        plate(0.82, 0.46, 0.08, C.MONEY);
+        plate(0.7, 0.34, 0.05, C.MONEY_DARK);
+        plate(0.64, 0.28, 0.04, C.MONEY);
+        disc(0.1, C.MONEY_PAPER);
+        return glyph;
+    }
+
+    /**
      * Positions the HUD inside the *visible* design rect rather than the full
      * design resolution. Under FIXED_HEIGHT the design box stays 720x1280, but a
      * narrow phone crops it horizontally — `getVisibleRect()` is what's actually
@@ -153,7 +197,8 @@ export class Hud {
         const bottom = r.y;
         const centerX = r.x + r.width / 2;
 
-        this._pill.setPosition({ x: right - 130, y: top - 60 });
+        // Same right margin the wider pill had.
+        this._pill.setPosition({ x: right - PILL_W / 2 - 25, y: top - 60 });
         this._objWrap.setPosition({ x: centerX, y: top - 150 });
         // Sits clear of the engine's own dev FPS overlay in the bottom-left corner.
         this._stockNode.setPosition({ x: left + 24, y: bottom + 70 });

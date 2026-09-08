@@ -205,9 +205,22 @@ export function makeCarrot(): THREE.Group {
 /** A banded stack of banknotes, as used for both the ground cash and shop payouts. */
 export function makeCashStack(): THREE.Group {
     const g = group(
-        at(box(0.72, 0.16, 0.42, C.MONEY), 0, 0.08, 0),
-        at(box(0.74, 0.05, 0.44, C.MONEY_PAPER), 0, 0.17, 0),
-        at(box(0.2, 0.2, 0.46, C.MONEY_DARK), 0, 0.1, 0),
+        // Top face built as the same note the 'money' pad icon draws: green
+        // body, a darker ring inset in it, the field again in the body green,
+        // and a paper medallion. Same proportions as the icon, scaled to this
+        // bundle, so the cash on the ground and the glyph on the pad pointing
+        // at it are recognisably the same object.
+        at(box(0.72, 0.14, 0.42, C.MONEY), 0, 0.07, 0),
+        at(box(0.62, 0.02, 0.32, C.MONEY_DARK), 0, 0.15, 0),
+        at(box(0.56, 0.02, 0.26, C.MONEY), 0, 0.17, 0),
+        at(cyl(0.1, 0.1, 0.02, 14, C.MONEY_PAPER), 0, 0.19, 0),
+        // One paper band round the short way. Taller and deeper than the bundle
+        // on purpose: it has to stand proud on the top and both sides, or it
+        // reads as a stripe painted on rather than a strap holding it together.
+        // Kept narrow so the medallion still shows either side of it, and the
+        // whole stack under 0.21 tall so that at the 0.75 scale the till uses, a
+        // second layer still clears SHOP.tillLayer.
+        at(box(0.13, 0.21, 0.44, C.MONEY_PAPER), 0, 0.105, 0),
     );
     g.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; } });
     return g;

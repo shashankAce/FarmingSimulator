@@ -14,6 +14,16 @@ import { at, rot } from '../procgen/Primitives.ts';
  * is how the reference gets its cartoon outline without a shader or a texture.
  */
 
+/**
+ * Size of the travel arrow lying beside the player, roughly its length in world
+ * units. It shares the grass with 1.7-wide pads and a character under two units
+ * tall, so it has to stay well under either to read as a hint rather than as
+ * scenery.
+ */
+const GROUND_ARROW = 1.05;
+/** The coloured face as a fraction of the outline behind it — the rim width. */
+const ARROW_FACE = 0.877;
+
 /** Arrow outline, pointing +Y in shape space, centred on its own origin. */
 function arrowShape(scale: number): THREE.Shape {
     const s = new THREE.Shape();
@@ -53,8 +63,8 @@ function extrudedArrow(scale: number, depth: number, color: number, lit = false)
 export function makeGroundArrow(): THREE.Group {
     const holder = new THREE.Group();
 
-    const outline = extrudedArrow(1.62, 0.16, 0x1d6b82, true);
-    const face = extrudedArrow(1.42, 0.16, C.ARROW, true);
+    const outline = extrudedArrow(GROUND_ARROW, 0.16, 0x1d6b82, true);
+    const face = extrudedArrow(GROUND_ARROW * ARROW_FACE, 0.16, C.ARROW, true);
 
     // Extrude builds the shape in XY pointing +Y; lay it into the XZ plane so it
     // reads as painted on the grass, then aim it down +Z.

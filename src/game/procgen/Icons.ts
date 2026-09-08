@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FONT_FAMILY } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { FARMER_COLORS, SELLER_COLORS, type CharacterColors } from './Character.ts';
 
@@ -209,57 +210,67 @@ export function makeFlatIcon(kind: IconKind): THREE.Group {
 }
 
 /**
- * Seven-segment digits, extruded flat like the pictograms above.
+ * Digits painted flat on the ground pads, in the game's own typeface.
  *
- * The money readout used to be a 2D `Label` pinned over the pad, which floated
- * at a constant screen size while the pad shrank into the distance and never
- * looked painted on. Digits built from the same rounded rects as the icons lie
- * in the ground plane with them, take the same light, and cost no per-frame
- * text baking.
+ * Not extruded outlines like the pictograms above: that needs a font parser,
+ * and neither route works here — three's `FontLoader` wants a typeface.json
+ * rather than the .ttf this game ships, and `TTFLoader` would have to fetch
+ * `res/` directly, which a single-file playable cannot resolve (see Rule 0).
+ * The ten digits are therefore drawn ONCE into an offscreen canvas, and every
+ * digit on every pad is a quad picking its own cell out of that one texture.
+ * Nothing is uploaded again afterwards, however fast a price counts down.
  *
- * Seven segments rather than authored letterforms: ten hand-drawn outlines is a
- * lot of bezier work for numbers this small, and a counter is one of the few
- * places the segment look reads as deliberate.
+ * The canvas is generated in memory, so it is not a `res/` asset and does not
+ * go near `AssetCache`; the FONT it is drawn with does, and is awaited before
+ * the scene is built (see `src/index.ts`). Build this any earlier and the
+ * browser bakes its fallback face into the atlas permanently.
  */
+const ATLAS_CELL = 128;
+const ATLAS_HEIGHT = 160;
 
-/** Segment boxes in a 0.5 x 0.86 cell, in the order a, b, c, d, e, f, g. */
-const SEGMENTS: Array<[w: number, h: number, x: number, y: number]> = [
-    [0.38, 0.12, 0, 0.37],      // a  top
-    [0.12, 0.31, 0.19, 0.185],  // b  upper right
-    [0.12, 0.31, 0.19, -0.185], // c  lower right
-    [0.38, 0.12, 0, -0.37],     // d  bottom
-    [0.12, 0.31, -0.19, -0.185],// e  lower left
-    [0.12, 0.31, -0.19, 0.185], // f  upper left
-    [0.38, 0.12, 0, 0],         // g  middle
-];
+let digitAtlas: THREE.CanvasTexture | null = null;
 
-const DIGIT_SEGMENTS: number[][] = [
-    [0, 1, 2, 3, 4, 5],     // 0
-    [1, 2],                 // 1
-    [0, 1, 6, 4, 3],        // 2
-    [0, 1, 6, 2, 3],        // 3
-    [5, 6, 1, 2],           // 4
-    [0, 5, 6, 2, 3],        // 5
-    [0, 5, 6, 4, 2, 3],     // 6
-    [0, 1, 2],              // 7
-    [0, 1, 2, 3, 4, 5, 6],  // 8
-    [0, 1, 2, 3, 5, 6],     // 9
-];
+function digitTexture(): THREE.CanvasTexture {
+    if (digitAtlas) return digitAtlas;
 
-/** Cell width plus the gap to the next one. */
-const DIGIT_PITCH = 0.62;
+    const canvas = document.createElement('canvas');
+    canvas.width = ATLAS_CELL * 10;
+    canvas.height = ATLAS_HEIGHT;
+
+    const ctx = canvas.getContext('2d')!;
+    // Drawn white so each readout's own material colour tints it — the same
+    // atlas serves the dark digits on a pale pad and the pale ones on a solid.
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.round(ATLAS_HEIGHT * 0.76)}px "${FONT_FAMILY}"`;
+    for (let d = 0; d < 10; d++) {
+        ctx.fillText(String(d), ATLAS_CELL * (d + 0.5), ATLAS_HEIGHT * 0.54);
+    }
+
+    digitAtlas = new THREE.CanvasTexture(canvas);
+    digitAtlas.colorSpace = THREE.SRGBColorSpace;
+    digitAtlas.anisotropy = 4;
+    return digitAtlas;
+}
+
+/** World height of one digit, and the cell width that follows from the atlas. */
+const DIGIT_H = 0.86;
+const DIGIT_W = DIGIT_H * (ATLAS_CELL / ATLAS_HEIGHT);
+/** Advance between digits. Tighter than the cell, since the cell has side bearing. */
+const DIGIT_PITCH = DIGIT_W * 0.82;
 
 /**
  * A number lying flat on the ground, sized to fit a given width.
  *
- * Every segment of every cell is built once up front and then toggled, so
- * changing the value allocates nothing — these tick every frame while a pad is
- * being paid off.
+ * Every cell is built once up front and then re-pointed at a different slice of
+ * the atlas, so changing the value allocates nothing — these tick every frame
+ * while a pad is being paid off.
  */
 export class FlatNumber {
     readonly group = new THREE.Group();
 
-    private _cells: THREE.Mesh[][] = [];
+    private _cells: THREE.Mesh[] = [];
     private _mat: THREE.MeshLambertMaterial;
     private _fitWidth: number;
     private _shown = -1;
@@ -267,24 +278,25 @@ export class FlatNumber {
     constructor(maxDigits: number, fitWidth: number, color: number) {
         this._fitWidth = fitWidth;
         this._mat = new THREE.MeshLambertMaterial({
+            map: digitTexture(),
+            transparent: true,
+            // Cuts the glyph out rather than blending it, which keeps the edges
+            // crisp and keeps these decals out of the transparent sort order.
+            alphaTest: 0.35,
             color, emissive: color, emissiveIntensity: 0.35,
         });
 
         for (let i = 0; i < maxDigits; i++) {
-            const cell: THREE.Mesh[] = [];
-            for (const [w, h, x, y] of SEGMENTS) {
-                const geo = new THREE.ExtrudeGeometry(roundRect(w, h, Math.min(w, h) / 2),
-                    { depth: THICKNESS, bevelEnabled: false });
-                geo.rotateX(-Math.PI / 2);
-                const m = new THREE.Mesh(geo, this._mat);
-                m.castShadow = false;
-                m.receiveShadow = true;
-                m.position.set(x, 0, -y);
-                m.visible = false;
-                cell.push(m);
-                this.group.add(m);
-            }
-            this._cells.push(cell);
+            // Own geometry per cell: the UVs are what select the digit, so these
+            // cannot share one.
+            const geo = new THREE.PlaneGeometry(DIGIT_W, DIGIT_H);
+            geo.rotateX(-Math.PI / 2);
+            const mesh = new THREE.Mesh(geo, this._mat);
+            mesh.castShadow = false;
+            mesh.receiveShadow = true;
+            mesh.visible = false;
+            this._cells.push(mesh);
+            this.group.add(mesh);
         }
         this.group.visible = false;
     }
@@ -313,21 +325,27 @@ export class FlatNumber {
         const used = text.length;
         for (let i = 0; i < this._cells.length; i++) {
             const cell = this._cells[i];
-            if (i >= used) {
-                for (const seg of cell) seg.visible = false;
-                continue;
-            }
+            cell.visible = i < used;
+            if (i >= used) continue;
             // Centre the digits actually in use, so a number does not drift
             // sideways as it counts down through a digit.
-            const x = (i - (used - 1) / 2) * DIGIT_PITCH;
-            const on = DIGIT_SEGMENTS[text.charCodeAt(i) - 48];
-            for (let s = 0; s < cell.length; s++) {
-                cell[s].visible = on.includes(s);
-                cell[s].position.x = SEGMENTS[s][2] + x;
-            }
+            cell.position.x = (i - (used - 1) / 2) * DIGIT_PITCH;
+            this._pointAt(cell, text.charCodeAt(i) - 48);
         }
 
-        const width = used * DIGIT_PITCH - (DIGIT_PITCH - 0.5);
+        const width = used * DIGIT_PITCH - (DIGIT_PITCH - DIGIT_W);
         this.group.scale.setScalar(Math.min(1, this._fitWidth / width));
+    }
+
+    /** Slides this cell's UVs onto digit `d`'s column of the atlas. */
+    private _pointAt(mesh: THREE.Mesh, d: number): void {
+        const uv = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute;
+        const u0 = d / 10;
+        const u1 = (d + 1) / 10;
+        uv.setXY(0, u0, 1);
+        uv.setXY(1, u1, 1);
+        uv.setXY(2, u0, 0);
+        uv.setXY(3, u1, 0);
+        uv.needsUpdate = true;
     }
 }
