@@ -47,7 +47,9 @@ export class Production {
     private _state: GameState;
     private _wheel: THREE.Mesh;
     private _funnel: THREE.Group;
-    private _rollers: THREE.Mesh[];
+    private _treads: THREE.Mesh[];
+    /** 0..1 scroll position of the belt cleats. */
+    private _treadPhase = 0;
     private _pour: THREE.Mesh;
 
     private _beltBottles: BeltBottle[] = [];
@@ -88,7 +90,7 @@ export class Production {
         // ── Conveyor ──
         const belt = makeConveyor(STATIONS.conveyor.x0, STATIONS.conveyor.x1);
         at(belt.group, 0, 0, STATIONS.conveyor.z);
-        this._rollers = belt.rollers;
+        this._treads = belt.treads;
         this.group.add(belt.group);
 
         // ── Rack stand ──
@@ -366,7 +368,16 @@ export class Production {
             // with it. It was previously spinning against the product.
             this._wheelSpin -= dt * 7;
             this._wheel.rotation.y = this._wheelSpin;
-            for (const r of this._rollers) r.rotation.y -= dt * 9;
+
+            // Cleats scroll at exactly the speed a bottle rides, so the belt and
+            // the thing it is carrying agree — a surface moving at its own pace
+            // reads as slipping under the cargo.
+            this._treadPhase = (this._treadPhase + dt / MACHINE.beltTime) % 1;
+            const { x0, x1 } = STATIONS.conveyor;
+            const n = this._treads.length;
+            for (let i = 0; i < n; i++) {
+                this._treads[i].position.x = x0 + (x1 - x0) * ((i / n + this._treadPhase) % 1);
+            }
             // Pulse the juice stream so it reads as flowing, not as a static rod.
             const s = 1 + Math.sin(this._wheelSpin * 4) * 0.14;
             this._pour.scale.set(s, 1, s);

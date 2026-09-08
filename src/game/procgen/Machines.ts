@@ -62,9 +62,8 @@ export function makeJuicer(): { group: THREE.Group; wheel: THREE.Mesh; funnel: T
     // cannot share a node. Euler order 'XYZ' applies Z before Y, so tilting
     // with `rotation.z` and then spinning with `rotation.y` turns the disc
     // about the machine's vertical axis rather than its own axle — the wheel
-    // swept through its own body instead of rotating. The belt rollers get
-    // away with the same shape only because their tilt is on X, which the same
-    // order applies AFTER the spin.
+    // swept through its own body instead of rotating. A tilt on X would have
+    // been safe, since 'XYZ' applies that one after the spin; Z is not.
     const hub = at(rot(new THREE.Group(), 0, 0, Math.PI / 2), 1.75, 1.5, 0);
     const wheel = cyl(0.75, 0.75, 0.18, 8, C.METAL_DARK);
     hub.add(wheel);
@@ -88,12 +87,15 @@ export function makeJuicer(): { group: THREE.Group; wheel: THREE.Mesh; funnel: T
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * A belt running along -X from `x0` to `x1` at height `BELT_Y`. Rollers are
- * returned so they can be spun while the belt is carrying bottles.
+ * A belt running along -X from `x0` to `x1` at height `BELT_Y`. The cleats are
+ * returned so they can be scrolled while the belt is carrying bottles.
  */
 export const BELT_Y = 1.15;
 
-export function makeConveyor(x0: number, x1: number): { group: THREE.Group; rollers: THREE.Mesh[] } {
+/** Top face of the belt slab — where cargo sits and the cleats stand proud. */
+const BELT_TOP = BELT_Y + 0.07;
+
+export function makeConveyor(x0: number, x1: number): { group: THREE.Group; treads: THREE.Mesh[] } {
     const g = new THREE.Group();
     const len = Math.abs(x1 - x0);
     const cx = (x0 + x1) / 2;
@@ -125,17 +127,29 @@ export function makeConveyor(x0: number, x1: number): { group: THREE.Group; roll
         g.add(cover);
     }
 
-    // Rollers poking above the belt line.
-    const rollers: THREE.Mesh[] = [];
-    const n = Math.max(3, Math.round(len / 1.1));
-    for (let i = 0; i <= n; i++) {
-        const x = x0 + (x1 - x0) * (i / n);
-        const r = at(cyl(0.16, 0.16, 1.4, 8, C.METAL), x, BELT_Y + 0.11, 0);
-        rot(r, Math.PI / 2, 0, 0);
-        g.add(r);
-        rollers.push(r);
+    // Cleats running across the belt, scrolled by `Production` while it works.
+    //
+    // These replace rollers that used to be modelled ON TOP of the belt line —
+    // 0.16 radius at BELT_Y + 0.11, so they stood 0.2 proud of a surface that
+    // tops out at BELT_TOP. A roller belongs UNDER a belt driving it, and one
+    // above it read as the belt running beneath its own drum. Cleats say
+    // "this surface is travelling" more directly than a spinning drum anyway,
+    // and they carry the eye in the direction of travel.
+    //
+    // Lighter than the belt rather than darker: a recessed-looking groove is
+    // what was asked for, but a dark line on a dark slab does not read at this
+    // distance, and the point of them is to be seen moving.
+    const treads: THREE.Mesh[] = [];
+    const count = Math.max(4, Math.round(len / 0.9));
+    for (let i = 0; i < count; i++) {
+        const x = x0 + (x1 - x0) * (i / count);
+        // Sunk a hair into the slab so there is no gap under it, and shallow
+        // enough that a bottle standing on the belt is not perched on stilts.
+        const cleat = at(box(0.12, 0.04, 1.34, C.METAL), x, BELT_TOP + 0.01, 0);
+        treads.push(cleat);
+        g.add(cleat);
     }
-    return { group: g, rollers };
+    return { group: g, treads };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
