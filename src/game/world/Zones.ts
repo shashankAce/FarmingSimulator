@@ -50,9 +50,17 @@ const NOTICE = 0xe4574f;
 const NOTICE_Y = 1.5;
 const NOTICE_BOB = 0.12;
 
-/** Money readout, dark on a pale pad and pale on a solid one. */
-const AMOUNT_ON_LIGHT = 0x2f2418;
-const AMOUNT_ON_SOLID = 0xf4f7e8;
+/** Money readout. One colour on every pad, pale or solid. */
+const AMOUNT = 0xffffff;
+/**
+ * Share of the pad's width the readout may use. Was half, which left a 1.7-wide
+ * pad showing its price at a third of the height it had room for.
+ */
+const AMOUNT_FIT = 0.86;
+/** Readout on a pad that cannot be afforded yet. */
+const AMOUNT_LOCKED = 0x9a96a0;
+/** How far the pictogram is washed toward `LOCKED` while the pad is locked. */
+const LOCKED_WASH = 0.8;
 
 // Prebuilt, because `update()` runs for every pad every frame and building
 // Colors there churns two allocations per zone per frame for nothing.
@@ -123,6 +131,8 @@ export class Zone {
     private _icon: THREE.Group | null = null;
     private _amount: FlatNumber | null = null;
     private _notice: THREE.Group | null = null;
+    /** Pictogram materials and their real tints, so locking can wash them out. */
+    private _iconMats: Array<{ m: THREE.MeshLambertMaterial; base: THREE.Color }> = [];
     private _noticeT = 0;
     private _amountZ = 0;
     private _solid = false;
@@ -210,11 +220,17 @@ export class Zone {
             // setScalar here would silently throw that away.
             icon.scale.multiplyScalar(Math.min(w, d) * 0.62);
             this._icon = icon;
+            icon.traverse(o => {
+                const mesh = o as THREE.Mesh;
+                if (!mesh.isMesh) return;
+                const m = mesh.material as THREE.MeshLambertMaterial;
+                this._iconMats.push({ m, base: m.color.clone() });
+            });
             g.add(icon);
         }
 
         if (opts.showAmount) {
-            this._amount = new FlatNumber(4, w * 0.5, AMOUNT_ON_LIGHT);
+            this._amount = new FlatNumber(4, w * AMOUNT_FIT, AMOUNT);
             // Nominally a fixed fraction down the pad, but pushed further if the
             // icon actually reaches that far. Glyphs differ wildly in height —
             // the banknote is a third the depth of a bust, and a centred one
@@ -301,9 +317,25 @@ export class Zone {
         if (this._notice) this._notice.visible = on;
     }
 
-    /** Greys the pad out and stops it lighting up. See `LOCKED`. */
+    /**
+     * Greys the pad out and stops it lighting up. See `LOCKED`.
+     *
+     * Washes the pictogram and the price as well as the outline and floor.
+     * Greying only the markings was not enough: the icon kept its full colours
+     * and the price stayed white, which are the two brightest things on the
+     * pad, so an unaffordable one still read as live from any distance and only
+     * gave itself away up close by refusing to light up.
+     */
     setLocked(on: boolean): void {
+        if (this._locked === on) return;
         this._locked = on;
+
+        for (const { m, base } of this._iconMats) {
+            m.color.copy(base);
+            if (on) m.color.lerp(C_LOCKED, LOCKED_WASH);
+            m.emissive.copy(m.color);
+        }
+        this._amount?.setColor(on ? AMOUNT_LOCKED : AMOUNT);
     }
 
     /** True while the pad is showing as unaffordable. */
@@ -311,13 +343,10 @@ export class Zone {
 
     /**
      * Switches the floor fill to translucent black — how a shop pad reads once
-     * it is open and its icon has been taken away. The readout flips to a pale
-     * ink at the same time, since dark-on-dark would vanish.
+     * it is open and its icon has been taken away.
      */
     setSolid(on: boolean): void {
-        if (this._solid === on) return;
         this._solid = on;
-        this._amount?.setColor(on ? AMOUNT_ON_SOLID : AMOUNT_ON_LIGHT);
     }
 
     update(dt: number): void {

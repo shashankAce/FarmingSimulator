@@ -50,6 +50,8 @@ export class Production {
     private _treads: THREE.Mesh[];
     /** 0..1 scroll position of the belt cleats. */
     private _treadPhase = 0;
+    /** Whether any bottle actually advanced this frame — see `_updateBelt`. */
+    private _beltMoved = false;
     private _pour: THREE.Mesh;
 
     private _beltBottles: BeltBottle[] = [];
@@ -272,11 +274,13 @@ export class Production {
         const gap = this._gapT;
 
         let limit = 1;
+        this._beltMoved = false;
         for (const b of this._beltBottles) {
             const want = b.t + dt / MACHINE.beltTime;
             const next = Math.min(want, limit);
             // Only wobble while actually moving; a queued bottle should sit still.
             b.obj.rotation.z = next < want ? 0 : Math.sin(next * 30) * 0.05;
+            if (next > b.t + 1e-6) this._beltMoved = true;
             b.t = next;
             b.obj.position.set(x0 + (x1 - x0) * b.t, BELT_Y + 0.07, z);
             limit = b.t - gap;
@@ -368,7 +372,11 @@ export class Production {
     }
 
     private _updateMachineMotion(dt: number): void {
-        if (this._working) {
+        // The plant is in motion while it is pressing OR while it is still
+        // delivering. `_working` alone is only the pressing half: with the
+        // hopper empty and bottles still riding the belt, the cleats stopped
+        // dead underneath cargo that was plainly still travelling.
+        if (this._working || this._beltMoved) {
             // Negative: the belt runs toward -X, and the flywheel has to turn
             // with it. It was previously spinning against the product.
             this._wheelSpin -= dt * 7;

@@ -282,11 +282,16 @@ export class FlatNumber {
 
     private _cells: THREE.Mesh[] = [];
     private _mat: THREE.MeshLambertMaterial;
-    private _fitWidth: number;
     private _shown = -1;
 
     constructor(maxDigits: number, fitWidth: number, color: number) {
-        this._fitWidth = fitWidth;
+        // Sized ONCE, against the longest value this readout can ever hold —
+        // not against whatever it happens to be showing. Re-fitting per value
+        // made the same pad's text a different height depending on the number
+        // on it, and made a price visibly jump larger as it counted down past
+        // a digit boundary.
+        const widest = maxDigits * DIGIT_PITCH - (DIGIT_PITCH - DIGIT_W);
+        this.group.scale.setScalar(Math.min(1, fitWidth / widest));
         this._mat = new THREE.MeshLambertMaterial({
             map: digitTexture(),
             transparent: true,
@@ -311,7 +316,7 @@ export class FlatNumber {
         this.group.visible = false;
     }
 
-    /** Repaints every digit — the readout has to stay legible on a dark pad. */
+    /** Repaints every digit — a readout on a locked pad has to look locked. */
     setColor(color: number): void {
         this._mat.color.setHex(color);
         this._mat.emissive.setHex(color);
@@ -342,9 +347,6 @@ export class FlatNumber {
             cell.position.x = (i - (used - 1) / 2) * DIGIT_PITCH;
             this._pointAt(cell, text.charCodeAt(i) - 48);
         }
-
-        const width = used * DIGIT_PITCH - (DIGIT_PITCH - DIGIT_W);
-        this.group.scale.setScalar(Math.min(1, this._fitWidth / width));
     }
 
     /** Slides this cell's UVs onto digit `d`'s column of the atlas. */
