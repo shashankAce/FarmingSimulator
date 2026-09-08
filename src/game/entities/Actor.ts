@@ -5,7 +5,7 @@ import { animateCharacter, CharacterColors, CharacterRig, makeCharacter } from '
 import { CarryLoad } from '../world/CarryLoad.ts';
 import { clampToYard } from '../world/Environment.ts';
 import { obstacles } from '../world/Obstacles.ts';
-import { PLAYER } from '../Config.ts';
+import { HARVEST, PLAYER } from '../Config.ts';
 
 /**
  * A walking character with a carry stack — the shared base for the player and
@@ -25,6 +25,26 @@ export class Actor {
     z: number;
     yaw = 0;
     speed: number;
+
+    /**
+     * Swings the blade to the other end of its arc.
+     *
+     * Alternating rather than repeating, so successive calls read as one blade
+     * going to and fro. The hold is generous enough to outlast the gap between
+     * sweeps, so the arms only drop once harvesting actually stops.
+     */
+    sweep(): void {
+        const half = (HARVEST.arcDeg * Math.PI) / 360;
+        this.rig.sweepTo = this.rig.sweepTo > 0 ? -half : half;
+        this.rig.sweepHold = HARVEST.interval * 1.6;
+    }
+
+    /**
+     * Seconds until this character may cut again. Harvesting runs on its own
+     * clock rather than the shared transfer tick: one sweep of a blade takes
+     * `HARVEST.interval`, and everything it reaches comes out on that swing.
+     */
+    harvestTimer = 0;
 
     /** Desired movement direction this frame, in world XZ. Not normalised by the caller. */
     protected _dirX = 0;

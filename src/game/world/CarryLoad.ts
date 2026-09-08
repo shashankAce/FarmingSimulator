@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {
-    BASKET_CAPACITY, CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, RACK_CAPACITY,
-    makeBottleRack, makeCarrotBasket,
+    BASKET_CAPACITY, CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, LAID_CARROT_LEN,
+    RACK_CAPACITY, makeBottleRack, makeCarrotBasket,
 } from '../procgen/Containers.ts';
 import { makeBottle, makeCarrot } from '../procgen/Machines.ts';
+import { CHARACTER } from '../Config.ts';
 
 export type ItemKind = 'carrot' | 'bottle';
 
@@ -19,11 +20,46 @@ const CAPACITY: Record<ItemKind, number> = { carrot: BASKET_CAPACITY, bottle: RA
 /** Vertical pitch when crates are stacked in the arms, before CARRY_SCALE. */
 const PITCH: Record<ItemKind, number> = CRATE_PITCH;
 /**
- * The shared crate scale (see `Containers.CRATE_SCALE`). At full size a stack
- * of crates is wider and taller than the character and hides them completely
- * from this camera angle, so this size is the one every other site matches.
+ * Crate scale inside the arms.
+ *
+ * `CRATE_SCALE` is a WORLD size and every other site uses it directly, but
+ * these crates hang off a character that is itself scaled by `CHARACTER.scale`,
+ * so the character's scale is divided back out. Without that, setting a crate
+ * down on a counter would visibly shrink it.
  */
-const CARRY_SCALE = CRATE_SCALE;
+const CARRY_SCALE = CRATE_SCALE / CHARACTER.scale;
+/** Speed and hop height of an item arcing into a crate from where it was picked. */
+const PICK_RATE = 3.4;
+const PICK_ARC = 0.7;
+/**
+ * How each kind sits in its crate: carrots tipped onto their side across the
+ * basket's WIDTH, bottles standing up in their rack.
+ *
+ * `shift` is not cosmetic. An item's origin is at its base, so a carrot laid
+ * flat runs its whole length out of ONE side of its slot instead of straddling
+ * it — which is what had them hanging over the rim. Half a length back puts the
+ * carrot on the cell rather than beside it.
+ *
+ * Always assigned rather than assumed, because items come from a pool and carry
+ * whatever angle they were last given.
+ */
+const LAY: Record<ItemKind, { tilt: number; shift: number }> = {
+    carrot: { tilt: -Math.PI / 2, shift: -LAID_CARROT_LEN / 2 },
+    bottle: { tilt: 0, shift: 0 },
+};
+
+/** An item still flying from where it was picked into its slot in the crate. */
+interface Picked {
+    item: THREE.Group;
+    crate: Carried;
+    /** Seconds still to wait where it fell before setting off. */
+    wait: number;
+    t: number;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    /** Angle it tips through on the way in — upright out of the soil, flat on landing. */
+    tilt: number;
+}
 
 /**
  * What a character is carrying: a small stack of crates held out in front, not
@@ -42,6 +78,7 @@ export class CarryLoad {
     private _anchor: THREE.Object3D;
     private _maxContainers: number;
     private _stack: Carried[] = [];
+    private _picked: Picked[] = [];
 
     private static _itemPool: Record<ItemKind, THREE.Group[]> = { carrot: [], bottle: [] };
     private static _cratePool: Record<ItemKind, Array<{ group: THREE.Group; slots: THREE.Vector3[] }>> =
@@ -80,6 +117,18 @@ export class CarryLoad {
         return (top ? top.group : this._anchor).getWorldPosition(out);
     }
 
+    /**
+     * How many more of `kind` will fit, across the open crate and any crates
+     * still to be opened. A batch harvest needs the whole number up front,
+     * not just whether one more fits.
+     */
+    roomFor(kind: ItemKind): number {
+        if (!this.isEmpty && this.kind !== kind) return 0;
+        const top = this._stack[this._stack.length - 1];
+        const inOpen = top ? CAPACITY[kind] - top.items.length : 0;
+        return inOpen + (this._maxContainers - this._stack.length) * CAPACITY[kind];
+    }
+
     /** Room for one more item of `kind`, either in an open crate or a new one. */
     accepts(kind: ItemKind): boolean {
         if (!this.isEmpty && this.kind !== kind) return false;
@@ -95,7 +144,16 @@ export class CarryLoad {
     }
 
     /** Adds one item, opening a fresh crate when the current one is full. */
-    push(kind: ItemKind): boolean {
+    /**
+     * Adds one item. `from` is where it was picked, in world space — given one,
+     * the item ARCS into its slot instead of appearing there, so a harvested
+     * carrot is seen leaving the ground and landing in the basket.
+     *
+     * `delay` holds it at `from` first. A sweep cuts several at once, and they
+     * look like a harvest rather than a shower if they lie where they fell for
+     * a moment and then go in one at a time.
+     */
+    push(kind: ItemKind, from?: THREE.Vector3, delay = 0): boolean {
         if (!this.accepts(kind)) return false;
 
         let top = this._stack[this._stack.length - 1];
@@ -104,12 +162,29 @@ export class CarryLoad {
         }
 
         const item = CarryLoad._acquireItem(kind);
-        const slot = top.slots[top.items.length];
-        item.position.copy(slot);
+        const lay = LAY[kind];
+        const slot = top.slots[top.items.length].clone();
+        slot.x += lay.shift;
         item.scale.setScalar(CONTENT_SCALE[kind]);
+        item.rotation.set(0, 0, from ? 0 : lay.tilt);
         item.visible = true;
         top.group.add(item);
         top.items.push(item);
+
+        if (from) {
+            // Converted into the crate's own space: the item is parented to a
+            // crate that is itself moving with the character, so a world-space
+            // path would be re-applied on top of that motion every frame.
+            top.group.updateWorldMatrix(true, false);
+            const start = top.group.worldToLocal(from.clone());
+            item.position.copy(start);
+            this._picked.push({
+                item, crate: top, wait: delay, t: 0,
+                from: start, to: slot, tilt: lay.tilt,
+            });
+        } else {
+            item.position.copy(slot);
+        }
         return true;
     }
 
@@ -169,7 +244,7 @@ export class CarryLoad {
         while (this._stack.length) this._discardTop();
     }
 
-    /** Springs newly lifted crates up to size. */
+    /** Springs newly lifted crates up to size, and flies picked items in. */
     update(dt: number): void {
         for (const c of this._stack) {
             if (c.t >= 1) continue;
@@ -177,6 +252,27 @@ export class CarryLoad {
             const p = c.t;
             const s = 1 + 2.0 * Math.pow(p - 1, 3) + 1.1 * Math.pow(p - 1, 2);
             c.group.scale.setScalar(Math.max(0.01, s) * CARRY_SCALE);
+        }
+
+        for (let i = this._picked.length - 1; i >= 0; i--) {
+            const f = this._picked[i];
+            // Dropped or tipped out mid-flight: the item is already back in the
+            // pool, so stop animating it before it is handed out again.
+            if (!f.crate.items.includes(f.item)) { this._picked.splice(i, 1); continue; }
+
+            if (f.wait > 0) { f.wait = Math.max(0, f.wait - dt); continue; }
+
+            f.t = Math.min(1, f.t + dt * PICK_RATE);
+            f.item.position.lerpVectors(f.from, f.to, f.t);
+            f.item.position.y += Math.sin(f.t * Math.PI) * PICK_ARC;
+            // Tips over as it travels: it leaves the soil standing, as it grew,
+            // and is lying down by the time it settles.
+            f.item.rotation.z = f.tilt * f.t;
+            if (f.t >= 1) {
+                f.item.position.copy(f.to);
+                f.item.rotation.z = f.tilt;
+                this._picked.splice(i, 1);
+            }
         }
     }
 

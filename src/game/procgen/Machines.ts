@@ -262,13 +262,22 @@ export function makeEmptyBottle(): THREE.Group {
     return g;
 }
 
+/**
+ * One carrot, in world units at full size. Shared by the field instances and
+ * the carried item so the same vegetable is the same vegetable wherever it is.
+ */
+export const CARROT = { radius: 0.2, tip: 0.02, length: 0.54, leaf: 0.3 };
+
 /** A single carrot with its leafy top — the carryable version. */
 export function makeCarrot(): THREE.Group {
-    // Wide at the crown, tapering to the tip (see carrotRootGeometry).
-    const body = at(cyl(0.17, 0.02, 0.62, 7, C.CARROT), 0, 0.31, 0);
+    // Built from the SAME dimensions the field instances use. These two used to
+    // be authored separately — 0.17 x 0.62 here against 0.20 x 0.54 there — so
+    // a carrot changed shape as well as size the moment it was picked.
+    const body = at(cyl(CARROT.radius, CARROT.tip, CARROT.length, 7, C.CARROT),
+        0, CARROT.length / 2, 0);
     const g = group(body);
     for (let i = 0; i < 3; i++) {
-        const leaf = at(box(0.08, 0.3, 0.08, C.LEAF), 0, 0.74, 0);
+        const leaf = at(box(0.08, CARROT.leaf, 0.08, C.LEAF), 0, CARROT.length + CARROT.leaf * 0.4, 0);
         rot(leaf, 0.3 * Math.cos(i * 2.1), i * 2.1, 0.3 * Math.sin(i * 2.1));
         g.add(leaf);
     }
@@ -319,7 +328,7 @@ export function makeCashStack(): THREE.Group {
 export function carrotRootGeometry(): THREE.BufferGeometry {
     // Widest at the crown where the leaves sprout, tapering to a point that
     // buries itself in the soil — a carrot, not an ice-cream cone.
-    const g = new THREE.CylinderGeometry(0.2, 0.02, 0.54, 7);
+    const g = new THREE.CylinderGeometry(CARROT.radius, CARROT.tip, CARROT.length, 7);
     g.translate(0, 0.16, 0);
     return g;
 }

@@ -1,7 +1,6 @@
 import { Scene } from 'noonengine';
 import { CARRY, PLAYER } from '../Config.ts';
-import { PLAYER_COLORS, makeShovel } from '../procgen/Character.ts';
-import { at, rot, scl } from '../procgen/Primitives.ts';
+import { PLAYER_COLORS, giveSickle } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { Joystick } from '../ui/Joystick.ts';
 
@@ -18,12 +17,9 @@ export class Player extends Actor {
             capacity: CARRY.playerCrates,
         });
 
-        // The shovel rides on the right arm's pivot, so it swings with the walk
-        // cycle for free. Only the player carries one — it's what distinguishes
-        // them from the hired hands at a glance.
-        const shovel = scl(makeShovel(), 0.85);
-        at(rot(shovel, -0.55, 0, 0.4), 0.06, -0.72, 0.24);
-        this.rig.armR.add(shovel);
+        // The sickle rides on the right arm's pivot, so it moves with the walk
+        // cycle and with the harvest spin for free.
+        giveSickle(this.rig);
     }
 
     updateWithInput(dt: number, joy: Joystick): void {

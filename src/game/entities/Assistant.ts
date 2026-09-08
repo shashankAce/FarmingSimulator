@@ -1,6 +1,7 @@
+import * as THREE from 'three';
 import { Scene } from 'noonengine';
-import { ASSISTANT, CARRY, MACHINE, STATIONS } from '../Config.ts';
-import { FARMER_COLORS, SELLER_COLORS } from '../procgen/Character.ts';
+import { ASSISTANT, CARRY, HARVEST, MACHINE, STATIONS } from '../Config.ts';
+import { FARMER_COLORS, SELLER_COLORS, giveSickle } from '../procgen/Character.ts';
 import { Actor } from './Actor.ts';
 import type { CarrotField } from '../world/CarrotField.ts';
 import type { Production } from '../stations/Production.ts';
@@ -57,6 +58,8 @@ export class FarmerAssistant extends Assistant {
 
     constructor(scene: Scene, ctx: FarmContext) {
         super(scene, ctx, FARMER_COLORS, STATIONS.juicerIn.x + 3, STATIONS.juicerIn.z);
+        // Farmhands cut too, so they carry the same blade the player does.
+        giveSickle(this.rig);
     }
 
     update(dt: number): void {
@@ -76,15 +79,28 @@ export class FarmerAssistant extends Assistant {
             case 'harvesting': {
                 this.setMove(0, 0);
                 if (!this.load.accepts('carrot')) { this._phase = 'to-juicer'; break; }
-                if (this.tickTransfer(dt)) {
-                    if (this.ctx.field.harvestNearest(this.x, this.z, 2.6)) {
-                        this.load.push('carrot');
-                    } else {
-                        // Patch exhausted: either move on, or go deliver what we have.
-                        this._target = null;
-                        this._phase = this.load.isEmpty ? 'to-field' : 'to-juicer';
-                    }
+
+                // Its own clock, not the shared transfer tick: one sweep of the
+                // blade takes `HARVEST.interval` and takes everything it reaches.
+                this.harvestTimer = Math.max(0, this.harvestTimer - dt);
+                if (this.harvestTimer > 0) break;
+                this.harvestTimer = HARVEST.interval;
+
+                const room = this.load.roomFor('carrot');
+                const cut = this.ctx.field.harvestArc(
+                    this.x, this.z, HARVEST.radius, this.yaw,
+                    (HARVEST.arcDeg * Math.PI) / 360, room);
+                if (cut.length === 0) {
+                    // Patch exhausted: either move on, or go deliver what we have.
+                    this._target = null;
+                    this._phase = this.load.isEmpty ? 'to-field' : 'to-juicer';
+                    break;
                 }
+                this.sweep();
+                cut.forEach((spot, i) => {
+                    this.load.push('carrot', new THREE.Vector3(spot.x, 0.45, spot.z),
+                        HARVEST.settle + i * HARVEST.stagger);
+                });
                 break;
             }
             case 'to-juicer': {

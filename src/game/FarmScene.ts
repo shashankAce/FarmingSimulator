@@ -3,7 +3,7 @@ import { DEBUG, Input, Node, Scene, display, inputListener } from 'noonengine';
 import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 'noonengine/3d';
 
 import {
-    BLOCKERS, CAMERA, ECONOMY, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, STATIONS, YARD,
+    BLOCKERS, CAMERA, ECONOMY, HARVEST, HIRE, MACHINE, MACHINE_UPGRADE, PLAYER, STATIONS, YARD,
     ZONE, farmhandPads, validateLayout,
 } from './Config.ts';
 import { SKY } from './Palette.ts';
@@ -30,6 +30,9 @@ import { Joystick } from './ui/Joystick.ts';
 import { DropButton } from './ui/DropButton.ts';
 
 /** A purchasable pad: hiring staff, or a machine tier. */
+/** Height a harvested carrot leaves the ground from, before arcing to the basket. */
+const CARROT_LIFT = 0.45;
+
 interface UpgradeSlot {
     zone: Zone;
     /** Money sunk into the current purchase. Reset after each one completes. */
@@ -497,11 +500,10 @@ export class FarmScene extends Scene {
         const p = this._player;
 
         // ── Harvest into a basket ──
-        if (canTransfer && this._field.contains(p.x, p.z) && p.load.accepts('carrot')) {
-            if (this._field.harvestNearest(p.x, p.z, 2.6)) {
-                p.load.push('carrot');
-                this._state.totalHarvested++;
-            }
+        p.harvestTimer = Math.max(0, p.harvestTimer - dt);
+        if (this._field.contains(p.x, p.z) && p.load.accepts('carrot') && p.harvestTimer === 0) {
+            p.harvestTimer = HARVEST.interval;
+            this._reap(p);
         }
 
         // ── Tip carrots into the juicer ──
@@ -597,6 +599,29 @@ export class FarmScene extends Scene {
         const next = paid + units;
         store(next);
         if (next >= cost) onComplete();
+    }
+
+    /**
+     * One swing of a blade: everything ripe in the wedge in front of `who`
+     * comes out at once and streams into their basket.
+     *
+     * Capped by what the basket can still take, so a wide sweep never cuts
+     * carrots that would have nowhere to go.
+     */
+    private _reap(who: Player | FarmerAssistant): void {
+        const room = who.load.roomFor('carrot');
+        if (room <= 0) return;
+
+        const cut = this._field.harvestArc(
+            who.x, who.z, HARVEST.radius, who.yaw, (HARVEST.arcDeg * Math.PI) / 360, room);
+        if (cut.length === 0) return;
+
+        who.sweep();
+        cut.forEach((spot, i) => {
+            who.load.push('carrot', new THREE.Vector3(spot.x, CARROT_LIFT, spot.z),
+                HARVEST.settle + i * HARVEST.stagger);
+        });
+        this._state.totalHarvested += cut.length;
     }
 
     /**

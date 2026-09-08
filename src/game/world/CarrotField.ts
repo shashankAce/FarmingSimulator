@@ -4,6 +4,7 @@ import { InstancedMesh3D } from 'noonengine/3d';
 import { FIELD, fieldBounds } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, box, makeRng, rangeOf } from '../procgen/Primitives.ts';
+import { LOOSE_CARROT_SCALE } from '../procgen/Containers.ts';
 import { carrotLeafGeometry, carrotMaterial, carrotRootGeometry, leafMaterial } from '../procgen/Machines.ts';
 
 interface CarrotSlot {
@@ -111,23 +112,46 @@ export class CarrotField {
      * Pulls the nearest ready carrot within `radius` of (x, z).
      * Returns true if one was harvested.
      */
-    harvestNearest(x: number, z: number, radius: number): boolean {
-        let best = -1;
-        let bestD = radius * radius;
-        for (let i = 0; i < this._slots.length; i++) {
-            const s = this._slots[i];
+    /**
+     * Cuts every ripe carrot inside a wedge in front of the character and
+     * reports where each one stood, nearest first.
+     *
+     * A wedge rather than a circle: the blade only covers what it sweeps, and
+     * reaping the row behind you off the same swing looks like nothing at all.
+     * `facing` is a world yaw and `halfArc` the half-width in radians, so the
+     * pair describe exactly the ground the animation covers.
+     */
+    harvestArc(
+        x: number, z: number, radius: number,
+        facing: number, halfArc: number, max: number,
+    ): Array<{ x: number; z: number }> {
+        const cut: Array<{ x: number; z: number; d: number }> = [];
+        for (const s of this._slots) {
             if (s.growth < 1) continue;
-            const dx = s.x - x, dz = s.z - z;
+            const dx = s.x - x;
+            const dz = s.z - z;
             const d = dx * dx + dz * dz;
-            if (d < bestD) { bestD = d; best = i; }
+            if (d > radius * radius) continue;
+            // Angle between the character's facing and this carrot, wrapped
+            // into -PI..PI so the comparison works across the seam.
+            let off = Math.atan2(dx, dz) - facing;
+            while (off > Math.PI) off -= Math.PI * 2;
+            while (off < -Math.PI) off += Math.PI * 2;
+            if (Math.abs(off) > halfArc) continue;
+            cut.push({ x: s.x, z: s.z, d });
         }
-        if (best < 0) return false;
-        const slot = this._slots[best];
-        slot.growth = 0;
-        slot.cooldown = FIELD.regrowTime;
-        this._dirty = true;
-        return true;
+
+        cut.sort((a, b) => a.d - b.d);
+        cut.length = Math.min(cut.length, max);
+        for (const c of cut) {
+            const slot = this._slots.find(s => s.x === c.x && s.z === c.z)!;
+            slot.growth = 0;
+            slot.cooldown = FIELD.regrowTime;
+        }
+        if (cut.length > 0) this._dirty = true;
+        return cut.map(c => ({ x: c.x, z: c.z }));
     }
+
 
     /** World position of the nearest ready carrot, for steering assistants. */
     nearestReady(x: number, z: number): { x: number; z: number } | null {
@@ -195,7 +219,10 @@ export class CarrotField {
             const s = this._slots[i];
             const g = s.growth;
             this._q.setFromAxisAngle(UP, s.yaw);
-            this._s.set(g, g, g);
+            // `g` is growth, 0..1. Multiplied by the carried scale so a carrot
+            // in the soil and the same carrot in a basket are the same size.
+            const k = g * LOOSE_CARROT_SCALE;
+            this._s.set(k, k, k);
             this._v.set(s.x, CarrotField.PLOT_TOP + 0.03, s.z);
             this._m.compose(this._v, this._q, this._s);
             rootMesh.setMatrixAt(i, this._m);

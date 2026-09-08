@@ -598,16 +598,54 @@ export const MACHINE_UPGRADE = {
     costs: [400, 1100, 2600],
 };
 
+/**
+ * ─── CHARACTER SIZE ──────────────────────────────────────────────────────────
+ * Applied to the player and both assistants; shoppers are a different species
+ * built by `makeCustomer` and are not affected.
+ *
+ * Carried crates COMPENSATE for this rather than inheriting it — see
+ * `CarryLoad.CARRY_SCALE`. A crate has one size wherever it sits, so a bigger
+ * character has to hold the same crate, not a bigger one.
+ */
+export const CHARACTER = { scale: 1.35 };
+
 export const PLAYER = {
     startX: -12,
     startZ: 4,
     speed: 9.5,
     turnSpeed: 14,
-    radius: 0.7,
+    /** Collision radius. Scales with the body, or a bigger one clips into things. */
+    radius: 0.7 * CHARACTER.scale,
 };
 
 export const ASSISTANT = {
     speed: 6.4,
+};
+
+/**
+ * ─── HARVESTING ──────────────────────────────────────────────────────────────
+ * Reach of one cut, measured from the character outward.
+ *
+ * Circular, and the character turns on the spot inside it, so this is literally
+ * how far the sickle sweeps — everything ripe within it is in range no matter
+ * which way they happen to be facing. Widening it lets a stationary character
+ * clear more of a plot before having to walk.
+ */
+export const HARVEST = {
+    /** How far the sickle reaches. */
+    radius: 2.6,
+    /**
+     * Width of the cut, in degrees, centred on the way the character faces.
+     * The sweep covers exactly this, so it is both what is animated and what is
+     * actually reaped — nothing behind the character is ever taken.
+     */
+    arcDeg: 180,
+    /** Seconds between sweeps. One sweep is one swing of the blade. */
+    interval: 0.5,
+    /** Seconds a cut carrot lies where it fell before setting off. */
+    settle: 0.14,
+    /** Seconds between one carrot leaving and the next — they go in a stream. */
+    stagger: 0.07,
 };
 
 /**
@@ -635,8 +673,12 @@ export const CARRY = {
     /** Crates in the arms. Assistants carry a lighter load than the player. */
     playerCrates: 6,
     assistantCrates: 2,
-    /** Carrots in a basket. */
-    basket: { cols: 3, rows: 2 },
+    /**
+     * Carrots in a basket. Columns run along a carrot's LENGTH, rows across its
+     * girth — and a carrot is long, so this is 2 x 3 rather than 3 x 2. The
+     * basket is sized from these, so raising `cols` widens it fast.
+     */
+    basket: { cols: 2, rows: 3 },
     /** Bottles in a rack. */
     rack: { cols: 3, rows: 2 },
     /**

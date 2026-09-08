@@ -20,12 +20,26 @@ import { at, box, rot } from './Primitives.ts';
  * object appear to change size as it moved between stations.
  */
 export const CRATE_SCALE = 0.58;
-/** Contents scale, relative to the crate they sit in. */
-export const CONTENT_SCALE = { bottle: 0.78, carrot: 0.86 };
+/**
+ * Contents scale, relative to the crate they sit in.
+ *
+ * `carrot` is derived rather than chosen: at exactly `1 / CRATE_SCALE` a carried
+ * carrot renders at its true world size, so the one in the basket is the one
+ * that came out of the ground. The basket below is sized around that, not the
+ * other way about — shrinking the carrot to fit a small basket is what made
+ * picking one visibly halve it.
+ */
+export const CONTENT_SCALE = { bottle: 0.78, carrot: 1 / CRATE_SCALE };
 /** Vertical pitch when crates are stacked, in crate-local units. See `CARRY.pitch`. */
 export const CRATE_PITCH = CARRY.pitch;
 /** World scale of a loose bottle, matched to one sitting in a crate. */
 export const LOOSE_BOTTLE_SCALE = CRATE_SCALE * CONTENT_SCALE.bottle;
+/**
+ * The same for a carrot growing in the ground. Without it the field grew them
+ * at full size while a basket showed them at 0.5, so picking one visibly
+ * halved it.
+ */
+export const LOOSE_CARROT_SCALE = CRATE_SCALE * CONTENT_SCALE.carrot;
 
 // Sourced from `CARRY` so the whole of a character's capacity is tunable from
 // one place. These stay exported because they also shape the crate meshes below.
@@ -37,28 +51,51 @@ export const BASKET_COLS = CARRY.basket.cols;
 export const BASKET_ROWS = CARRY.basket.rows;
 export const BASKET_CAPACITY = BASKET_COLS * BASKET_ROWS;
 
+/** A carrot in world units, leaves included — see `Machines.CARROT`. */
+const CARROT_GIRTH = 0.4;
+const CARROT_LENGTH = 0.81;
+
+/** Rack footprint, in crate-local units. */
 const W = 1.25;
 const D = 0.9;
 
+/** A carrot lying on its side, in crate-local units. */
+export const LAID_CARROT_LEN = CARROT_LENGTH * CONTENT_SCALE.carrot;
+export const LAID_CARROT_GIRTH = CARROT_GIRTH * CONTENT_SCALE.carrot;
+
+/**
+ * Basket footprint, DERIVED from what it has to hold rather than guessed.
+ *
+ * Carrots are carried at full size (see `CONTENT_SCALE`) and lie on their
+ * sides, so a cell has to take a whole carrot lengthways — leaves and all,
+ * which is nearly twice the root on its own. Columns run along the length and
+ * rows across the girth, which is why `CARRY.basket` is 2 x 3 rather than
+ * 3 x 2: three lengthways would need a basket over two units wide.
+ */
+const BW = BASKET_COLS * LAID_CARROT_LEN + 0.16;
+const BD = BASKET_ROWS * LAID_CARROT_GIRTH + 0.22;
+
 /** Shared crate shell: base slab, corner posts and side rails. */
-function crateShell(height: number, postColor: number, railColor: number): THREE.Group {
+function crateShell(
+    w: number, d: number, height: number, postColor: number, railColor: number,
+): THREE.Group {
     const g = new THREE.Group();
 
-    g.add(at(box(W, 0.12, D, C.WOOD_LIGHT), 0, 0.06, 0));
-    g.add(at(box(W + 0.1, 0.07, D + 0.1, C.WOOD), 0, 0.015, 0));
+    g.add(at(box(w, 0.12, d, C.WOOD_LIGHT), 0, 0.06, 0));
+    g.add(at(box(w + 0.1, 0.07, d + 0.1, C.WOOD), 0, 0.015, 0));
 
-    for (const x of [-W / 2 + 0.07, W / 2 - 0.07]) {
-        for (const z of [-D / 2 + 0.07, D / 2 - 0.07]) {
+    for (const x of [-w / 2 + 0.07, w / 2 - 0.07]) {
+        for (const z of [-d / 2 + 0.07, d / 2 - 0.07]) {
             g.add(at(box(0.13, height, 0.13, postColor), x, height / 2, z));
         }
     }
 
     // Two rails per side — the slatted look from the reference crate.
     for (const y of [height * 0.42, height * 0.86]) {
-        g.add(at(box(W, 0.11, 0.09, railColor), 0, y, D / 2 - 0.02));
-        g.add(at(box(W, 0.11, 0.09, railColor), 0, y, -D / 2 + 0.02));
-        g.add(at(box(0.09, 0.11, D, railColor), W / 2 - 0.02, y, 0));
-        g.add(at(box(0.09, 0.11, D, railColor), -W / 2 + 0.02, y, 0));
+        g.add(at(box(w, 0.11, 0.09, railColor), 0, y, d / 2 - 0.02));
+        g.add(at(box(w, 0.11, 0.09, railColor), 0, y, -d / 2 + 0.02));
+        g.add(at(box(0.09, 0.11, d, railColor), w / 2 - 0.02, y, 0));
+        g.add(at(box(0.09, 0.11, d, railColor), -w / 2 + 0.02, y, 0));
     }
 
     return g;
@@ -69,9 +106,11 @@ function crateShell(height: number, postColor: number, railColor: number): THREE
  * matches the rack's divider pitch exactly, so bottles land in the gaps between
  * columns rather than straddling them.
  */
-function gridSlots(cols: number, rows: number, y: number): THREE.Vector3[] {
-    const spanX = W - 0.16;
-    const spanZ = D - 0.22;
+function gridSlots(
+    cols: number, rows: number, y: number, w = W, d = D,
+): THREE.Vector3[] {
+    const spanX = w - 0.16;
+    const spanZ = d - 0.22;
     const slots: THREE.Vector3[] = [];
     // Front row first, so a partly filled crate fills from the visible side.
     for (let r = rows - 1; r >= 0; r--) {
@@ -94,7 +133,7 @@ export function makeBottleRack(): { group: THREE.Group; slots: THREE.Vector3[] }
     // Deliberately shallow. A full-height crate swallows the bottles entirely —
     // the point of racking them is that the juice stays visible.
     const height = 0.38;
-    const g = crateShell(height, C.WOOD_DARK, C.WOOD_PALE);
+    const g = crateShell(W, D, height, C.WOOD_DARK, C.WOOD_PALE);
 
     // Divider columns — the detail that makes this a rack and not a basket.
     for (let c = 0; c <= RACK_COLS; c++) {
@@ -111,15 +150,22 @@ export function makeBottleRack(): { group: THREE.Group; slots: THREE.Vector3[] }
  * — carrots are tipped in loose, so anything inside would just clip through them.
  */
 export function makeCarrotBasket(): { group: THREE.Group; slots: THREE.Vector3[] } {
-    // Same reasoning as the rack: low enough that the carrots show over the rim.
-    const height = 0.44;
-    const g = crateShell(height, C.WOOD, C.WOOD_LIGHT);
+    // Deeper than the rack, so a carrot lying in it is held rather than
+    // balanced on top — but still low enough that the load shows over the rim.
+    const height = 0.62;
+    const g = crateShell(BW, BD, height, C.WOOD, C.WOOD_LIGHT);
 
     // A woven-looking inner liner, purely so the open interior isn't a void.
-    g.add(at(box(W - 0.18, 0.06, D - 0.18, C.WOOD_PALE), 0, 0.13, 0));
+    g.add(at(box(BW - 0.18, 0.06, BD - 0.18, C.WOOD_PALE), 0, 0.13, 0));
 
     g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    return { group: g, slots: gridSlots(BASKET_COLS, BASKET_ROWS, 0.16) };
+    // Slot height is the floor plus the carrot's own half-girth: they lie on
+    // their sides, so this is where their centre line has to be for them to
+    // rest ON the floor rather than sink through it.
+    return {
+        group: g,
+        slots: gridSlots(BASKET_COLS, BASKET_ROWS, 0.12 + LAID_CARROT_GIRTH / 2, BW, BD),
+    };
 }
 
 /** Bottle rack standing at the production station, angled for display. */
