@@ -75,6 +75,17 @@ export const LAID_CARROT_GIRTH = CARROT_GIRTH * CONTENT_SCALE.carrot;
 const BW = BASKET_COLS * LAID_CARROT_LEN + 0.16;
 const BD = BASKET_ROWS * LAID_CARROT_GIRTH + 0.22;
 
+/**
+ * Front-to-back depth of each container, in crate-local units.
+ *
+ * Exported because a character carries these on their BACK, and how far back
+ * one has to sit to clear the body is its own half-depth — a basket is derived
+ * from a carrot lying lengthways and is two and a half times as deep as a rack,
+ * so one shared offset either buries the basket in the torso or leaves the rack
+ * hanging in mid-air. Keyed by item like `CRATE_PITCH`, for the same reason.
+ */
+export const CRATE_DEPTH = { carrot: BD, bottle: D };
+
 /** Shared crate shell: base slab, corner posts and side rails. */
 function crateShell(
     w: number, d: number, height: number, postColor: number, railColor: number,

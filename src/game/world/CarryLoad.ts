@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-    BASKET_CAPACITY, CONTENT_SCALE, CRATE_PITCH, CRATE_SCALE, LAID_CARROT_LEN,
+    BASKET_CAPACITY, CONTENT_SCALE, CRATE_DEPTH, CRATE_PITCH, CRATE_SCALE, LAID_CARROT_LEN,
     RACK_CAPACITY, makeBottleRack, makeCarrotBasket,
 } from '../procgen/Containers.ts';
 import { makeBottle, makeCarrot } from '../procgen/Machines.ts';
@@ -28,6 +28,23 @@ const PITCH: Record<ItemKind, number> = CRATE_PITCH;
  * down on a counter would visibly shrink it.
  */
 const CARRY_SCALE = CRATE_SCALE / CHARACTER.scale;
+/**
+ * How far behind the anchor a crate sits: exactly its own half-depth, so the
+ * crate's FRONT face lands ON the anchor and rests against the back.
+ *
+ * The anchor is the character's back surface (`HOLD_Z` in
+ * `procgen/Character.ts`), so a crate centred there has half of itself inside
+ * the body — for a basket that was a third of a unit of torso. No air is added
+ * on top: a gap here is what makes the load look like it is trailing the
+ * character rather than being carried by them.
+ *
+ * Scaled by `CARRY_SCALE` because the depth is in crate-local units while the
+ * position is in the anchor's space, where the crate's own scale does not apply.
+ */
+const BACK_OFF: Record<ItemKind, number> = {
+    carrot: (CRATE_DEPTH.carrot / 2) * CARRY_SCALE,
+    bottle: (CRATE_DEPTH.bottle / 2) * CARRY_SCALE,
+};
 /** Speed and hop height of an item arcing into a crate from where it was picked. */
 const PICK_RATE = 3.4;
 const PICK_ARC = 0.7;
@@ -99,9 +116,6 @@ export class CarryLoad {
         for (const c of this._stack) n += c.items.length;
         return n;
     }
-
-    /** True while anything is held — drives the character's carry pose. */
-    get isCarrying(): boolean { return this._stack.length > 0; }
 
     /**
      * Where the crate that `popCrate` is about to hand over currently sits, in
@@ -293,7 +307,7 @@ export class CarryLoad {
         const built = CarryLoad._acquireCrate(kind);
         built.group.visible = true;
         built.group.scale.setScalar(0.01);
-        built.group.position.set(0, this._stackHeight(kind), 0);
+        built.group.position.set(0, this._stackHeight(kind), -BACK_OFF[kind]);
         this._anchor.add(built.group);
 
         const carried: Carried = { kind, group: built.group, slots: built.slots, items: [], t: 0 };

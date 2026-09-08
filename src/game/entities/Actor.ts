@@ -138,7 +138,7 @@ export class Actor {
             if (this._cutIn <= 0) this._landCut();
         }
 
-        animateCharacter(this.rig, dt, this._speed01, this.load.isCarrying);
+        animateCharacter(this.rig, dt, this._speed01);
         this.load.update(dt);
     }
 
