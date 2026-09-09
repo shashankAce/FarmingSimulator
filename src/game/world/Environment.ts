@@ -1,8 +1,11 @@
 import * as THREE from 'three';
-import { GROUND_SIZE, VILLAGE, YARD, visibleBounds } from '../Config.ts';
+import { GRAPHICS, GROUND_SIZE, VILLAGE, YARD, visibleBounds } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { at, disc, makeRng, plane, rangeOf, rot, scl } from '../procgen/Primitives.ts';
-import { makeBush, makeCobblePath, makeFlower, makeGrassTuft, makeRock, makeTree } from '../procgen/Nature.ts';
+import {
+    makeBush, makeCobblePath, makeCobbleRing, makeCobbleTexture, makeFlower, makeGrassTuft,
+    makeRock, makeTree,
+} from '../procgen/Nature.ts';
 import {
     makeBarrel, makeCart, makeCow, makeCrate, makeFenceRect, makeFountain, makeHouse, makeLampPost,
 } from '../procgen/Structures.ts';
@@ -60,9 +63,23 @@ export function buildEnvironment(seed = VILLAGE.seed): THREE.Group {
         [YARD.minX - pad, YARD.maxZ + pad],
         [YARD.minX - pad, YARD.minZ - pad],
     ];
-    const road = makeCobblePath(rng, ring, V.pathWidth);
-    road.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = false; } });
-    world.add(road);
+    if (GRAPHICS.bakedPath) {
+        // One band, one texture, eight triangles — see `makeCobbleRing`. The
+        // ring's own corner list is not needed here: a rectangle inset from the
+        // yard by `pad` is exactly what the band is built from.
+        // `bandWidth` comes back from the texture, not from config: it is the
+        // road plus the grass margin that keeps the edge stones whole, and the
+        // band has to be exactly as wide as what was painted.
+        const { tex, tileWorld, bandWidth } = makeCobbleTexture(
+            rng, V.pathWidth, V.pathStoneR, V.pathStoneSpacing);
+        world.add(makeCobbleRing(
+            YARD.minX - pad, YARD.maxX + pad, YARD.minZ - pad, YARD.maxZ + pad,
+            bandWidth, tex, tileWorld));
+    } else {
+        const road = makeCobblePath(rng, ring, V.pathWidth, V.pathStoneR, V.pathStoneSpacing);
+        road.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = false; } });
+        world.add(road);
+    }
 
     // ── Fence around the playable yard ───────────────────────────────────────
     solid(makeFenceRect(YARD.minX, YARD.maxX, YARD.minZ, YARD.maxZ));

@@ -518,6 +518,22 @@ export const VILLAGE = {
     /** Gap between the fence and the cobbled ring road. */
     pathPadding: 4.2,
     pathWidth: 2.6,
+    /**
+     * Cobble radius, in world units. Bigger stones mean fewer of them, at both
+     * ends of `GRAPHICS.bakedPath`: the geometry road builds fewer, larger
+     * slabs, and the baked one paints fewer, larger stones per tile — so the
+     * two keep matching when this changes, which they would not if the number
+     * were written into either builder.
+     */
+    pathStoneR: 0.42,
+    /**
+     * Centre-to-centre spacing, as a MULTIPLE of the radius rather than an
+     * absolute distance. That is what holds the packing when the radius
+     * changes: at 1.86 the stones just overlap, and they still just overlap
+     * whether they are half the size or twice it. An absolute step would have
+     * big stones piling up and small ones drifting apart.
+     */
+    pathStoneSpacing: 1.96,
 
     houses: [
         { x: YARD.minX - 12, z: YARD.minZ - 9, yaw: 0.2 },
@@ -642,9 +658,22 @@ export const GRAPHICS = {
      * Turning it back on needs nothing else: the meshes all still declare
      * `castShadow`, which costs nothing while no light casts.
      */
-    shadows: false,
+    shadows: true,
     /** Resolution of the sun's shadow map, when shadows are on. */
-    shadowMapSize: 2048,
+    shadowMapSize: 1024,
+    /**
+     * Draw the ring road as one textured band instead of 720 stone meshes.
+     *
+     * The stones were already merged down to two draw calls, so this is not
+     * about call count — it is about the ~14k triangles they contribute (half
+     * the village's total) and one layer of overdraw where they lie on the
+     * grass. Baked, the road is 8 triangles and one call, painted from a
+     * procedural 512-square canvas that repeats every 5.2 world units.
+     *
+     * Off restores the individual stones, which have real thickness and catch
+     * light per-stone. Worth comparing: a phone might not care about either.
+     */
+    bakedPath: true,
     /**
      * Cap on the framebuffer's pixel density, passed to `GameEngine`.
      *
