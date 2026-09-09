@@ -516,8 +516,8 @@ export const VILLAGE = {
     /** Seed for every scattered position. Change it to reroll the whole village. */
     seed: 0xC0FFEE,
     /** Gap between the fence and the cobbled ring road. */
-    pathPadding: 5,
-    pathWidth: 4,
+    pathPadding: 3,
+    pathWidth: 2,
     /**
      * Cobble radius, in world units. Bigger stones mean fewer of them, at both
      * ends of `GRAPHICS.bakedPath`: the geometry road builds fewer, larger
@@ -533,7 +533,7 @@ export const VILLAGE = {
      * whether they are half the size or twice it. An absolute step would have
      * big stones piling up and small ones drifting apart.
      */
-    pathStoneSpacing: 1.9,
+    pathStoneSpacing: 2.2,
 
     houses: [
         { x: YARD.minX - 12, z: YARD.minZ - 9, yaw: 0.2 },
@@ -587,7 +587,7 @@ export const VILLAGE = {
     },
 
     /** Broad tonal discs that break up the flat green. */
-    grassPatches: { count: 10, minR: 2.5, maxR: 6.0 },
+    grassPatches: { count: 2, minR: 2.5, maxR: 6.0 },
 };
 
 /**

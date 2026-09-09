@@ -252,6 +252,10 @@ export function makeBottle(): THREE.Group {
         at(cyl(0.1, 0.1, 0.09, 6, C.BOTTLE_CAP), 0, 0.76, 0),
     );
     g.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; } });
+    // Parts never move relative to each other and bottles are pooled (see
+    // `Production._pool`/`ShopStock._bottlePool`), so this merge is paid once
+    // per pooled instance rather than once per draw — same as `makeCashStack`.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
     return g;
 }
 
@@ -261,6 +265,7 @@ export function makeEmptyBottle(): THREE.Group {
         at(cyl(0.17, 0.17, 0.46, 8, C.GLASS, { opacity: 0.75 }), 0, 0.23, 0),
         at(cyl(0.085, 0.14, 0.2, 6, C.GLASS, { opacity: 0.75 }), 0, 0.63, 0),
     );
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
     return g;
 }
 
@@ -284,6 +289,9 @@ export function makeCarrot(): THREE.Group {
         g.add(leaf);
     }
     g.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; } });
+    // Leaves never move relative to the body and carrots are pooled wherever
+    // they're carried, so the three same-material leaves collapse to one mesh.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
     return g;
 }
 

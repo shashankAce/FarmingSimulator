@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { CARRY } from '../Config.ts';
+import { CARRY, GRAPHICS } from '../Config.ts';
 import { C } from '../Palette.ts';
+import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 import { at, box, rot } from './Primitives.ts';
 
 /**
@@ -162,6 +163,10 @@ export function makeBottleRack(): { group: THREE.Group; slots: THREE.Vector3[] }
     }
 
     g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // The shell's rails/posts/dividers never move relative to each other and
+    // racks are pooled, so this merge is paid once per pooled instance and
+    // reused for the life of the run — same reasoning as `makeCashStack`.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
     return { group: g, slots: gridSlots(RACK_COLS, RACK_ROWS, 0.14) };
 }
 
@@ -179,6 +184,8 @@ export function makeCarrotBasket(): { group: THREE.Group; slots: THREE.Vector3[]
     g.add(at(box(BW - 0.18, 0.06, BD - 0.18, C.WOOD_PALE), 0, 0.13, 0));
 
     g.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // Pooled and never internally animated, like the rack shell above.
+    if (GRAPHICS.mergeStatic) mergeStaticInPlace(g);
     // Slot height is the floor plus the carrot's own half-girth: they lie on
     // their sides, so this is where their centre line has to be for them to
     // rest ON the floor rather than sink through it.
