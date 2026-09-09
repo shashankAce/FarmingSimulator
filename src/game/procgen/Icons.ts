@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CAMERA, FONT_FAMILY } from '../Config.ts';
 import { C } from '../Palette.ts';
 import { FARMER_COLORS, SELLER_COLORS, type CharacterColors } from './Character.ts';
@@ -280,7 +281,10 @@ const DIGIT_PITCH = DIGIT_W * 0.82;
 export class FlatNumber {
     readonly group = new THREE.Group();
 
-    private _cells: THREE.Mesh[] = [];
+    private _mesh: THREE.Mesh;
+    private _geometry: THREE.BufferGeometry;
+    private _baseX: Float32Array;
+    private _maxDigits: number;
     private _mat: THREE.MeshLambertMaterial;
     private _shown = -1;
 
@@ -301,18 +305,29 @@ export class FlatNumber {
             color, emissive: color, emissiveIntensity: 0.35,
         });
 
+        this._maxDigits = maxDigits;
+
+        // All digit cells share one indexed geometry. Changing a number only
+        // rewrites the four UVs and X positions belonging to each visible cell;
+        // drawRange selects the used prefix. The old mesh-per-digit version
+        // issued up to four calls for every price marker despite one material.
+        const cells: THREE.BufferGeometry[] = [];
         for (let i = 0; i < maxDigits; i++) {
-            // Own geometry per cell: the UVs are what select the digit, so these
-            // cannot share one.
-            const geo = new THREE.PlaneGeometry(DIGIT_W, DIGIT_H);
-            geo.rotateX(-Math.PI / 2);
-            const mesh = new THREE.Mesh(geo, this._mat);
-            mesh.castShadow = false;
-            mesh.receiveShadow = true;
-            mesh.visible = false;
-            this._cells.push(mesh);
-            this.group.add(mesh);
+            const cell = new THREE.PlaneGeometry(DIGIT_W, DIGIT_H);
+            cell.rotateX(-Math.PI / 2);
+            cells.push(cell);
         }
+        this._geometry = mergeGeometries(cells)!;
+        for (const cell of cells) cell.dispose();
+        const position = this._geometry.getAttribute('position') as THREE.BufferAttribute;
+        this._baseX = new Float32Array(position.count);
+        for (let i = 0; i < position.count; i++) this._baseX[i] = position.getX(i);
+        this._geometry.setDrawRange(0, 0);
+
+        this._mesh = new THREE.Mesh(this._geometry, this._mat);
+        this._mesh.castShadow = false;
+        this._mesh.receiveShadow = true;
+        this.group.add(this._mesh);
         this.group.visible = false;
     }
 
@@ -330,7 +345,7 @@ export class FlatNumber {
             return;
         }
 
-        const max = 10 ** this._cells.length - 1;
+        const max = 10 ** this._maxDigits - 1;
         const n = Math.max(0, Math.min(max, Math.floor(value)));
         this.group.visible = true;
         if (n === this._shown) return;
@@ -338,26 +353,31 @@ export class FlatNumber {
 
         const text = String(n);
         const used = text.length;
-        for (let i = 0; i < this._cells.length; i++) {
-            const cell = this._cells[i];
-            cell.visible = i < used;
-            if (i >= used) continue;
+        const position = this._geometry.getAttribute('position') as THREE.BufferAttribute;
+        for (let i = 0; i < used; i++) {
             // Centre the digits actually in use, so a number does not drift
             // sideways as it counts down through a digit.
-            cell.position.x = (i - (used - 1) / 2) * DIGIT_PITCH;
-            this._pointAt(cell, text.charCodeAt(i) - 48);
+            const x = (i - (used - 1) / 2) * DIGIT_PITCH;
+            const firstVertex = i * 4;
+            for (let v = 0; v < 4; v++) {
+                position.setX(firstVertex + v, this._baseX[firstVertex + v] + x);
+            }
+            this._pointAt(i, text.charCodeAt(i) - 48);
         }
+        position.needsUpdate = true;
+        this._geometry.setDrawRange(0, used * 6);
     }
 
     /** Slides this cell's UVs onto digit `d`'s column of the atlas. */
-    private _pointAt(mesh: THREE.Mesh, d: number): void {
-        const uv = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute;
+    private _pointAt(cell: number, d: number): void {
+        const uv = this._geometry.getAttribute('uv') as THREE.BufferAttribute;
         const u0 = d / 10;
         const u1 = (d + 1) / 10;
-        uv.setXY(0, u0, 1);
-        uv.setXY(1, u1, 1);
-        uv.setXY(2, u0, 0);
-        uv.setXY(3, u1, 0);
+        const v = cell * 4;
+        uv.setXY(v, u0, 1);
+        uv.setXY(v + 1, u1, 1);
+        uv.setXY(v + 2, u0, 0);
+        uv.setXY(v + 3, u1, 0);
         uv.needsUpdate = true;
     }
 }

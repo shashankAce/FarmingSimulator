@@ -240,7 +240,7 @@ export function makeShop(): THREE.Group {
     sign.add(at(box(0.14, 0.18, 0.1, C.GLASS), -0.35, 2.32, 0.1));
     sign.add(at(box(0.66, 0.14, 0.1, 0xe4574f), 0.3, 2.14, 0.1));
     sign.add(at(box(0.66, 0.14, 0.1, 0xe4574f), 0.3, 1.9, 0.1));
-    at(rot(sign, 0, -0.35, 0), 2.9, 0, 0.9);
+    at(rot(sign, 0, 0.35, 0), -2.9, 0, 1.2);
     g.add(sign);
 
     // ── Dressing, kept to the left end ──

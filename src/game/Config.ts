@@ -9,7 +9,7 @@
 import { display } from 'noonengine';
 import type { IconKind } from './procgen/Icons.ts';
 
-export const GAME_WIDTH = 1280;
+export const GAME_WIDTH = 390;
 export const GAME_HEIGHT = 720;
 
 /**
@@ -23,10 +23,10 @@ export const GAME_HEIGHT = 720;
  * carries the stalls and their queues along with the fence.
  */
 export const YARD = {
-    minX: -23,
-    maxX: 20,
-    minZ: -16,
-    maxZ: 18,
+    minX: -14,
+    maxX: 14,
+    minZ: -14,
+    maxZ: 14,
 };
 
 export const yardWidth = (): number => YARD.maxX - YARD.minX;
@@ -37,7 +37,7 @@ export const yardCenter = (): { x: number; z: number } => ({
 });
 
 /** Grass extends well past the fence so the outer village sits on green, not void. */
-export const GROUND_SIZE = 180;
+export const GROUND_SIZE = 140;
 
 /**
  * The game's one typeface, loaded from `res/fonts` before the scene runs.
@@ -107,10 +107,10 @@ export const FONT_SRC = 'res/fonts/CherryBombOne-Regular.ttf';
  * freely — just keep it inside `YARD` (`validateLayout()` warns if it isn't).
  */
 export const FIELD = {
-    originX: 1.5,
+    originX: 5,
     originZ: -12,
-    cols: 4,
-    rows: 5,
+    cols: 3,
+    rows: 4,
     plotW: 2.9,
     plotD: 2.9,
     gap: 0.35,
@@ -181,7 +181,7 @@ export const ZONE = {
  */
 export const PLANT = {
     /** Move THIS to move the juicer, belt, racks and all their pads together. */
-    origin: { x: -5.5, z: -8 },
+    origin: { x: -1, z: -11 },
     /** Belt head and tail, as offsets along the line from the juicer. */
     beltStart: -3.2,
     beltEnd: -7.6,
@@ -205,7 +205,7 @@ export const PLANT = {
  */
 export const STATIONS = {
     /** Starting cash on the ground — the first thing the player ever picks up. */
-    startCash: { x: -8, z: 12, ...ZONE.startCash, icon: 'money' as IconKind },
+    startCash: { x: 3, z: 5, ...ZONE.startCash, icon: 'money' as IconKind },
     /** The machine body itself (not walkable). */
     juicer: { x: PLANT.origin.x, z: PLANT.origin.z },
     /** Drop carrots here to feed the juicer. */
@@ -278,9 +278,9 @@ export interface ShopConfig {
 }
 
 export const SHOPS: ReadonlyArray<ShopConfig> = [
-    { side: 'west', along: 9.5, cost: 60 },      // opens with the starting cash
-    { side: 'west', along: -1.0, cost: 450 },
-    { side: 'south', along: -15, cost: 1400 },
+    { side: 'south', along: -6, cost: 60 },// opens with the starting cash
+    { side: 'west', along: 5, cost: 450 },      
+    // { side: 'west', along: -4.0, cost: 1400 },
 ];
 
 /** Stall geometry shared by every entry in `SHOPS`. */
@@ -310,8 +310,8 @@ export const SHOP = {
      * blocked counter costs a walk rather than happening for free under the
      * player's feet. Sits on the flank opposite the hire pad.
      */
-    collectAlong: 4.0,
-    collectInward: -1,
+    collectAlong: 3.0,
+    collectInward: 1,
     /**
      * Construction-plot deck, in stall-local units. `offset` pushes it toward
      * the customer side so it clears the serving pad behind it.
@@ -516,8 +516,8 @@ export const VILLAGE = {
     /** Seed for every scattered position. Change it to reroll the whole village. */
     seed: 0xC0FFEE,
     /** Gap between the fence and the cobbled ring road. */
-    pathPadding: 4.2,
-    pathWidth: 2.6,
+    pathPadding: 5,
+    pathWidth: 4,
     /**
      * Cobble radius, in world units. Bigger stones mean fewer of them, at both
      * ends of `GRAPHICS.bakedPath`: the geometry road builds fewer, larger
@@ -525,7 +525,7 @@ export const VILLAGE = {
      * two keep matching when this changes, which they would not if the number
      * were written into either builder.
      */
-    pathStoneR: 0.42,
+    pathStoneR: 0.7,
     /**
      * Centre-to-centre spacing, as a MULTIPLE of the radius rather than an
      * absolute distance. That is what holds the packing when the radius
@@ -533,14 +533,14 @@ export const VILLAGE = {
      * whether they are half the size or twice it. An absolute step would have
      * big stones piling up and small ones drifting apart.
      */
-    pathStoneSpacing: 1.96,
+    pathStoneSpacing: 1.9,
 
     houses: [
         { x: YARD.minX - 12, z: YARD.minZ - 9, yaw: 0.2 },
-        { x: YARD.minX - 3, z: YARD.minZ - 12, yaw: -0.1 },
+        // { x: YARD.minX - 3, z: YARD.minZ - 12, yaw: -0.1 },
         { x: YARD.minX + 9, z: YARD.minZ - 13, yaw: 0.05 },
         { x: YARD.minX + 21, z: YARD.minZ - 11, yaw: -0.25 },
-        { x: YARD.minX - 15, z: YARD.minZ + 6, yaw: 1.4 },
+        // { x: YARD.minX - 15, z: YARD.minZ + 6, yaw: 1.4 },
         { x: YARD.minX - 17, z: YARD.minZ + 18, yaw: 1.5 },
         { x: YARD.minX - 14, z: YARD.maxZ + 2, yaw: 1.7 },
         { x: YARD.maxX + 13, z: YARD.minZ - 4, yaw: -1.5 },
@@ -549,9 +549,9 @@ export const VILLAGE = {
 
     lamps: [
         { x: YARD.minX - 5.8, z: YARD.minZ + 4 },
-        { x: YARD.minX - 5.8, z: YARD.minZ + 22 },
-        { x: YARD.minX + 6, z: YARD.minZ - 5.8 },
-        { x: YARD.maxX - 8, z: YARD.minZ - 5.8 },
+        // { x: YARD.minX - 5.8, z: YARD.minZ + 22 },
+        // { x: YARD.minX + 6, z: YARD.minZ - 5.8 },
+        // { x: YARD.maxX - 8, z: YARD.minZ - 5.8 },
         { x: YARD.maxX + 5.8, z: YARD.maxZ - 10 },
     ],
 
@@ -559,7 +559,7 @@ export const VILLAGE = {
     cart: { x: YARD.minX - 7, z: YARD.minZ - 8, yaw: 0.6 },
 
     /** Cattle graze in the western pasture. */
-    cattle: { count: 5, minOut: 14, maxOut: 26, zFrom: -6, zTo: 16 },
+    cattle: { count: 2, minOut: 14, maxOut: 26, zFrom: -6, zTo: 16 },
 
     /**
      * Seeded scatter: how many, and the closest they may land to the fence.
@@ -578,12 +578,12 @@ export const VILLAGE = {
      * camera really does reach 32 units to each side.
      */
     scatter: {
-        trees: { count: 21, minPad: 5, floweringChance: 0.25 },
-        bushes: { count: 18, minPad: 2 },
-        rocks: { count: 8, minPad: 2 },
+        trees: { count: 5, minPad: 5, floweringChance: 0.25 },
+        bushes: { count: 5, minPad: 2 },
+        rocks: { count: 5, minPad: 2 },
         props: { count: 3, minPad: 6 },
         /** Flowers and tufts are flat, so they are allowed inside the fence too. */
-        groundCover: { count: 46 },
+        groundCover: { count: 1 },
     },
 
     /** Broad tonal discs that break up the flat green. */
@@ -673,21 +673,11 @@ export const GRAPHICS = {
      * Off restores the individual stones, which have real thickness and catch
      * light per-stone. Worth comparing: a phone might not care about either.
      */
-    bakedPath: true,
+    bakedPath: false,
     /**
-     * Cap on the framebuffer's pixel density, passed to `GameEngine`.
-     *
-     * THE mobile setting. Left alone the engine renders at the device's own
-     * `devicePixelRatio`, which on a phone is 2.5 to 3.5 — so the game draws
-     * 6 to 12 TIMES the fragments of a 1:1 render, for detail nobody can see
-     * on a 6-inch screen at arm's length. Every per-pixel cost in the frame
-     * scales with this: the ground, the grass, overdraw where scenery overlaps,
-     * the lot. It is the first thing to try when a phone is slow and a desktop
-     * is not, and unlike geometry work it costs nothing to change.
-     *
-     * 1.5 keeps text and edges from looking soft while cutting the fragment
-     * work to roughly a fifth of an uncapped 3.5 phone. 1 is cheaper again and
-     * visibly softer; 2 is the most a mobile GPU of this class is worth giving.
+     * Cap the framebuffer density on high-DPI phones. A DPR 3 display otherwise
+     * shades nine physical pixels for every CSS pixel; 1.5 keeps edges crisp
+     * enough for this camera while reducing that fragment workload sharply.
      */
     pixelRatio: 1.5,
     /**
@@ -703,26 +693,19 @@ export const GRAPHICS = {
      * Size of the XZ tile the merge buckets by, in world units. `Infinity`
      * turns tiling off — one call per material, full stop.
      *
-     * The trade-off is one draw call per material per VISIBLE tile: tiling buys
-     * culling and pays for it in calls. It was worth it when the village was
-     * 135 x 126 and the camera saw a fifth of it. It stopped being worth it
-     * once the scatter was cut back to what the camera can reach — the world is
-     * now 110 x 71 and the view covers 64 x 33 of it, so almost every tile is
-     * on screen almost always.
+     * Finite values use merged spatial tiles. This is the reliable low-end
+     * WebGL path: whole chunks outside the camera frustum are skipped, while
+     * same-material props inside a chunk stay merged into one draw call.
      *
-     * The census settled it. Tiled at 24, the merged village came to 202 meshes
-     * over 29 materials — seven copies of each material, most of them visible.
-     * Untiled it is 29 meshes, always drawn, carrying 29k triangles. At the
-     * 178 triangles per call this scene averages, 29 calls of everything beats
-     * 80 calls of two thirds of it, and by a wide margin.
-     *
-     * Grow the world again and this earns its keep again.
+     * `Infinity` uses BatchedMesh per-object culling, but without the optional
+     * WEBGL_multi_draw extension Three must issue one fallback call per visible
+     * item. Many mobile GPUs lack that extension, so it is not the default.
      */
-    mergeTile: Infinity,
+    mergeTile: 24,
 };
 
 export const PLAYER = {
-    startX: -12,
+    startX: -4,
     startZ: 4,
     speed: 9.5,
     turnSpeed: 14,
@@ -948,7 +931,7 @@ export function visibleBounds(): { minX: number; maxX: number; minZ: number; max
 }
 
 /** Slack past the last visible pixel, so nothing pops in at the frame edge. */
-const VISIBLE_MARGIN = 2;
+const VISIBLE_MARGIN = 0;
 
 /**
  * ─── DEBUG OVERVIEW ──────────────────────────────────────────────────────────

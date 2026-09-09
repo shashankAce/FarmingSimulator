@@ -48,7 +48,13 @@ function bucketKeyAt(
 ): string {
     const tx = Math.floor(at.elements[12] / tile);
     const tz = Math.floor(at.elements[14] / tile);
-    const attrs = Object.keys(mesh.geometry.attributes).sort().join(',');
+    const attrs = Object.entries(mesh.geometry.attributes)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, attr]) => {
+            const arrayType = attr.array.constructor.name;
+            return `${name}:${attr.itemSize}:${attr.normalized ? 1 : 0}:${arrayType}`;
+        })
+        .join(',');
     const indexed = mesh.geometry.index ? 'i' : 'n';
     return `${mat.uuid}|${mesh.castShadow ? 1 : 0}${mesh.receiveShadow ? 1 : 0}|${tx},${tz}|${attrs}|${indexed}`;
 }
@@ -150,6 +156,13 @@ export function mergeStaticInPlace(
 }
 
 export function mergeStatic(root: THREE.Object3D, tile: number): THREE.Group {
+    // A world-sized merged geometry has one bounding volume and therefore
+    // stays drawable whenever any part of it touches the camera. BatchedMesh
+    // preserves the same one-object-per-material result while culling each
+    // original prop inside the batch. Finite tiles keep the simpler merged
+    // path below, where the tile bounds already provide useful granularity.
+    if (!Number.isFinite(tile)) return batchStatic(root);
+
     const out = new THREE.Group();
     out.name = root.name;
     root.updateMatrixWorld(true);
@@ -166,7 +179,8 @@ export function mergeStatic(root: THREE.Object3D, tile: number): THREE.Group {
         // match; an instanced or batched mesh is already one call for many.
         // Neither is worth the special case here.
         if (Array.isArray(mesh.material) || !mesh.geometry
-            || (mesh as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) {
+            || (mesh as unknown as { isInstancedMesh?: boolean }).isInstancedMesh
+            || (mesh as unknown as { isBatchedMesh?: boolean }).isBatchedMesh) {
             keep.push(mesh);
             return;
         }
@@ -204,6 +218,79 @@ export function mergeStatic(root: THREE.Object3D, tile: number): THREE.Group {
 
     // Never disposed, only dropped: the cache in `Primitives.ts` hands the same
     // geometry to meshes all over the game, and this one is not its owner.
+    for (const obj of keep) carryOver(obj, out);
+    return out;
+}
+
+/**
+ * Batches static meshes by material without baking away their individual
+ * bounds. `THREE.BatchedMesh.perObjectFrustumCulled` is true by default, so a
+ * tree behind the camera is omitted from both the colour pass and any shadow
+ * pass whose camera cannot see it, while all visible trees sharing this bucket
+ * still issue as one multi-draw call.
+ */
+function batchStatic(root: THREE.Object3D): THREE.Group {
+    const out = new THREE.Group();
+    out.name = root.name;
+    root.updateMatrixWorld(true);
+
+    const buckets = new Map<string, THREE.Mesh[]>();
+    const keep: THREE.Object3D[] = [];
+
+    root.traverse(obj => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        if (Array.isArray(mesh.material) || !mesh.geometry
+            || (mesh as unknown as { isInstancedMesh?: boolean }).isInstancedMesh
+            || (mesh as unknown as { isBatchedMesh?: boolean }).isBatchedMesh) {
+            keep.push(mesh);
+            return;
+        }
+        const key = bucketKey(mesh, mesh.material as THREE.Material, Infinity);
+        const list = buckets.get(key);
+        if (list) list.push(mesh);
+        else buckets.set(key, [mesh]);
+    });
+
+    for (const group of buckets.values()) {
+        const first = group[0];
+        if (group.length === 1) { keep.push(first); continue; }
+
+        // Reused primitive geometries are uploaded once, then referenced by as
+        // many independently culled instances as need them.
+        const geometries = new Map<string, THREE.BufferGeometry>();
+        for (const mesh of group) geometries.set(mesh.geometry.uuid, mesh.geometry);
+
+        let vertices = 0;
+        let indices = 0;
+        for (const geometry of geometries.values()) {
+            vertices += geometry.getAttribute('position').count;
+            indices += geometry.getIndex()?.count ?? 0;
+        }
+
+        const batch = new THREE.BatchedMesh(
+            group.length,
+            vertices,
+            indices,
+            first.material as THREE.Material,
+        );
+        batch.castShadow = first.castShadow;
+        batch.receiveShadow = first.receiveShadow;
+        batch.perObjectFrustumCulled = true;
+
+        const geometryIds = new Map<string, number>();
+        for (const [uuid, geometry] of geometries) {
+            geometryIds.set(uuid, batch.addGeometry(geometry));
+        }
+        for (const mesh of group) {
+            const geometryId = geometryIds.get(mesh.geometry.uuid);
+            if (geometryId === undefined) continue;
+            const instanceId = batch.addInstance(geometryId);
+            batch.setMatrixAt(instanceId, mesh.matrixWorld);
+        }
+        out.add(batch);
+    }
+
     for (const obj of keep) carryOver(obj, out);
     return out;
 }

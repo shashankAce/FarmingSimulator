@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { C } from '../Palette.ts';
 import { at, plane, rot } from '../procgen/Primitives.ts';
 import { FlatNumber, makeFlatIcon, makeWorldText, type IconKind } from '../procgen/Icons.ts';
+import { mergeStaticInPlace } from './MergeStatic.ts';
 
 /** Colour the outline and fill snap to while somebody is standing on the pad. */
 const HIGHLIGHT = 0xffd83d;
@@ -70,6 +71,31 @@ const C_HIGHLIGHT = new THREE.Color(HIGHLIGHT);
 const C_SOLID = new THREE.Color(SOLID);
 const C_LOCKED = new THREE.Color(LOCKED);
 const C_SCRATCH = new THREE.Color();
+
+/**
+ * Icon builders use a fresh Lambert material for every coloured shape. That is
+ * convenient while authoring, but repeated fur, eyes or banknote layers become
+ * separate draw calls. Inside one zone every occurrence of a colour is tinted
+ * together when locked, so sharing that material and merging its geometry does
+ * not change behaviour.
+ */
+function mergeFlatIcon(icon: THREE.Group): void {
+    const byColor = new Map<number, THREE.MeshLambertMaterial>();
+    icon.traverse(o => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+        const material = mesh.material as THREE.MeshLambertMaterial;
+        const color = material.color.getHex();
+        const shared = byColor.get(color);
+        if (shared) {
+            mesh.material = shared;
+            material.dispose();
+        } else {
+            byColor.set(color, material);
+        }
+    });
+    mergeStaticInPlace(icon);
+}
 
 export interface ZoneOptions {
     /** Pictogram laid flat on the pad saying what happens here. */
@@ -236,6 +262,7 @@ export class Zone {
 
         if (opts.icon) {
             const icon = makeFlatIcon(opts.icon);
+            mergeFlatIcon(icon);
             at(icon, opts.iconX ?? 0, 0.09,
                 opts.iconZ ?? (opts.showAmount ? -d * ICON_LIFT : 0));
             // multiply, not set: a glyph may carry its own intrinsic scale (the
