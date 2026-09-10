@@ -7,7 +7,7 @@
  */
 export const C = {
     // ── Ground ──
-    GRASS: 0x7ec13c,
+    GRASS: 0xa3d867,
     GRASS_DARK: 0x76b937,
     SOIL: 0x5d3b2b,
     SOIL_LIGHT: 0x744a35,

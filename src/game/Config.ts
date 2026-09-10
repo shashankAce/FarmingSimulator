@@ -188,9 +188,9 @@ export const PLANT = {
     /** Rack stand, same axis. */
     rackStand: -9.9,
     /** How far in front of the machinery the interaction pads sit. */
-    padOffset: 3.5,
+    padOffset: 4,
     /** Speed-upgrade pad, relative to the origin. */
-    upgradePad: { dx: -4.1, dz: 3.6 },
+    upgradePad: { dx: -4.1, dz: 2 },
 };
 
 /**

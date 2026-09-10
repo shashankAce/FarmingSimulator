@@ -286,8 +286,8 @@ export class FarmScene extends Scene {
 
         const sunNode = new Node();
         this._sun = sunNode.addComponent(DirectionalLight3D);
-        this._sun.color = 0xfff3d6;
-        this._sun.intensity = 2.1;
+        this._sun.color = 0xfff1a1;
+        this._sun.intensity = 3;
         this.addChild(sunNode);
         this._sun.position.set(PLAYER.startX + 18, 34, PLAYER.startZ + 12);
 
