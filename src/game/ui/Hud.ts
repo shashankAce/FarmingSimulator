@@ -175,8 +175,9 @@ export class Hud {
         this._toastLabel.fontFamily = FONT_FAMILY;
         this._toastLabel.fontSize = px(44);
         this._toastLabel.fontWeight = 800;
-        this._toastLabel.color = '#ffe9a8';
+        this._toastLabel.color = '#fac62a';
         this._toastLabel.textAlign = 'center';
+        this._toastLabel.setShadow(2, 2, 2, '#000');
         scene.addChild(this._toastNode);
 
         // ── Wire up state signals ──
