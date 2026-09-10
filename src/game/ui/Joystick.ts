@@ -18,6 +18,7 @@ export class Joystick {
     private _base: Node;
     private _knob: Node;
     private _active = false;
+    private _enabled = true;
     private _pointerId: number | null = null;
     private _originX = 0;
     private _originY = 0;
@@ -67,8 +68,26 @@ export class Joystick {
     // /** True while a pointer is steering. */
     // get active(): boolean { return this._active; }
 
+    /**
+     * Switches steering off and releases whatever is holding it — how the stick
+     * leaves the screen when the run ends. Without the release, a game that
+     * ends mid-drag leaves a thumbstick painted under a finger that no longer
+     * controls anything.
+     */
+    setEnabled(on: boolean): void {
+        if (this._enabled === on) return;
+        this._enabled = on;
+        if (on) return;
+        this._active = false;
+        this._pointerId = null;
+        this.x = 0;
+        this.y = 0;
+        this._setVisible(false);
+    }
+
     /** Folds the keyboard fallback in, so callers only read `x`/`y`. */
     update(): void {
+        if (!this._enabled) return;
         if (this._active) return;
 
         let kx = 0, ky = 0;
@@ -83,6 +102,7 @@ export class Joystick {
     }
 
     private _onDown = (e: PointerInputEvent): void => {
+        if (!this._enabled) return;
         if (this._active) return;
         if (this._blocked(e.x, e.y)) return;
         // Existed only to leave right/middle drags to the camera pan, which the

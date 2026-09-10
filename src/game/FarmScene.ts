@@ -4,7 +4,7 @@ import { AmbientLight3D, Camera3D, DirectionalLight3D, HemisphereLight3D } from 
 
 import {
     BLOCKERS, CAMERA, ECONOMY, GRAPHICS, HARVEST, HIRE, MACHINE, MACHINE_UPGRADE, OVERVIEW, PLAYER,
-    STATIONS, YARD, ZONE, farmhandPads, validateLayout,
+    RUN, STATIONS, YARD, ZONE, farmhandPads, validateLayout,
 } from './Config.ts';
 import { SKY } from './Palette.ts';
 import { GameState, type Objective } from './GameState.ts';
@@ -21,7 +21,7 @@ import { makeDropIndicator, makeGroundArrow, updateDropIndicator } from './world
 
 import { Production } from './stations/Production.ts';
 import { ShopRow, type ShopStand } from './stations/Shop.ts';
-import { CashField } from './stations/Cash.ts';
+import { CashField, cashGridFootprint } from './stations/Cash.ts';
 
 import { Player } from './entities/Player.ts';
 import { FarmerAssistant, SellerAssistant, type FarmContext } from './entities/Assistant.ts';
@@ -34,6 +34,7 @@ import { Joystick } from './ui/Joystick.ts';
 // can be put back by uncommenting, not rewritten. See also `PAN` in Config.
 // import { CameraPan } from './ui/CameraPan.ts';
 import { DropButton } from './ui/DropButton.ts';
+import { GameOverPanel } from './ui/GameOverPanel.ts';
 
 /** A purchasable pad: hiring staff, or a machine tier. */
 
@@ -70,6 +71,19 @@ export class FarmScene extends Scene {
     private _joystick!: Joystick;
     // private _pan!: CameraPan;
     private _dropButton!: DropButton;
+    private _gameOver!: GameOverPanel;
+
+    /**
+     * The run, in three states.
+     *
+     * `idle` is a live, playable world with the clock held at full — the player
+     * can look around and read the objective without being charged for it. It
+     * ends the moment they steer, not on a timer and not on a tap: a tap is how
+     * you plant the thumbstick, and starting the clock on that would penalise
+     * picking the control up.
+     */
+    private _phase: 'idle' | 'running' | 'over' = 'idle';
+    private _timeLeft = RUN.duration;
 
     private _camera!: Camera3D;
     private _sun!: DirectionalLight3D;
@@ -154,7 +168,6 @@ export class FarmScene extends Scene {
 
         this._cash.grid(
             STATIONS.startCash.x, STATIONS.startCash.z,
-            STATIONS.startCash.w, STATIONS.startCash.d,
             ECONOMY.startCash, ECONOMY.startCashPiles,
         );
 
@@ -164,9 +177,17 @@ export class FarmScene extends Scene {
         this._dropIndicator = makeDropIndicator();
         sys.scene.add(this._groundArrow, this._dropIndicator);
 
-        // Built before the stick so the stick can be told to ignore its taps.
+        // Both built before the stick so the stick can be told to ignore their
+        // taps — it claims pointer-down globally, without hit-testing.
         this._dropButton = new DropButton(this, () => this._dropCarriedLoad());
-        this._joystick = new Joystick(this, (x, y) => this._dropButton.hits(x, y));
+        // `location.reload()` rather than swapping in a fresh scene: a reload
+        // reruns `src/index.ts` from nothing, which is the only restart that is
+        // guaranteed to clear the module-level state this game keeps outside the
+        // scene — the `obstacles` field, the geometry and material caches in
+        // `procgen/Primitives.ts`, and the digit atlas.
+        this._gameOver = new GameOverPanel(this, () => location.reload());
+        this._joystick = new Joystick(
+            this, (x, y) => this._dropButton.hits(x, y) || this._gameOver.hits(x, y));
         // Given the same button exclusion as the stick, so a second finger
         // reaching for "put it down" does not drag the view as well.
         // this._pan = new CameraPan(
@@ -209,7 +230,20 @@ export class FarmScene extends Scene {
         // add up to the game's own share of the frame.
         this._stats3D?.frame();
 
+        // Frozen, but not stopped: the camera keeps easing and the HUD keeps
+        // drawing, so the card lands on a live frame rather than on a still.
+        // Everything that could change the outcome — input, pads, stations,
+        // staff — is skipped, including the DROP button's keyboard shortcut.
+        if (this._phase === 'over') {
+            this._updateCamera(step);
+            this._hud.update(step, this._state);
+            return;
+        }
+
         this._joystick.update();
+        if (this._phase === 'idle' && (this._joystick.x !== 0 || this._joystick.y !== 0)) {
+            this._phase = 'running';
+        }
         this._dropButton.update();
         this._dropButton.setVisible(!this._player.load.isEmpty);
         this._player.updateWithInput(step, this._joystick);
@@ -247,7 +281,10 @@ export class FarmScene extends Scene {
 
         if (this._playerRing) this._playerRing.position.set(this._player.x, 0, this._player.z);
 
-        this._hud.update(step, this._state, this._production.rackCount, this._production.rackCapacity);
+        // Last, so a stall paid off this frame is counted this frame.
+        this._advanceClock(step);
+        this._hud.setTime(this._timeLeft);
+        this._hud.update(step, this._state);
         this._stats3D?.mark('hud');
     }
 
@@ -389,10 +426,19 @@ export class FarmScene extends Scene {
         };
 
         // Presentation travels with the pad — see STATIONS in Config.
-        for (const key of ['startCash', 'juicerIn', 'rackPickup'] as const) {
+        for (const key of ['juicerIn', 'rackPickup'] as const) {
             const cfg = STATIONS[key];
             add(key, cfg, { icon: cfg.icon, showProgress: 'showProgress' in cfg && cfg.showProgress });
         }
+
+        // The stake's pad is the one pad whose size is not authored: it is the
+        // block of notes lying on it plus a margin, so the parcel and its
+        // markings are the same object. Built from the same helper `_cash.grid`
+        // packs with, and BEFORE the cash itself is laid down — order does not
+        // matter, since both read `ECONOMY.startCashPiles` rather than each other.
+        add('startCash', {
+            ...STATIONS.startCash, ...cashGridFootprint(ECONOMY.startCashPiles),
+        }, { icon: STATIONS.startCash.icon });
 
         // One pad per stand: construction site while locked, serving pad once open.
         for (const stand of this._shops.stands) {
@@ -529,7 +575,11 @@ export class FarmScene extends Scene {
             const cost = slot.cost();
             slot.zone.occupied = on && slot.zone.contains(x, z);
             slot.zone.setProgress(cost === null || cost <= 0 ? 1 : slot.paid / cost);
-            slot.zone.setAmount(cost === null ? null : Math.max(0, Math.ceil(cost - slot.paid)));
+            // The PRICE, held still — not the balance counting down. The fill
+            // bar underneath it is already the payment progress, and showing
+            // the same fact twice meant the number a player was deciding
+            // against was never on screen long enough to read.
+            slot.zone.setAmount(cost);
             slot.zone.setLocked(cost !== null && this._state.money < cost - slot.paid);
             slot.zone.update(dt);
         }
@@ -539,21 +589,25 @@ export class FarmScene extends Scene {
             const stand = this._shops.stands[i];
             zone.occupied = zone.contains(x, z);
 
-            // A locked plot is a price tag: the icon and the remaining cost,
-            // and nothing in the bar. The bar belongs to stock, and a stall
-            // that does not exist has none — which is also what used to make
-            // the first stall read as permanently full, since its cost is 0 and
-            // "nothing left to pay" came out of the old bar as 100%.
+            // A locked plot is a price tag: the icon, the price, and a bar
+            // filling toward OPENING the stall.
+            //
+            // The bar used to show how stocked the stall was, which put the one
+            // pad in the game to two unrelated uses and taught the wrong thing
+            // about every other pad — everywhere else a filling bar means a
+            // purchase completing. An open stall's stock is legible from the
+            // crates on its counter; what it costs to get one open was not
+            // legible anywhere.
             zone.setIconVisible(!stand.isOpen);
             zone.setSolid(stand.isOpen);
             if (stand.isOpen) {
                 zone.setLocked(false);        // nothing left to buy here
-                zone.setProgress(stand.stockFullness);
+                zone.setProgress(0);
                 // Money reads on the takings pad now, not here.
                 zone.setAmount(null);
             } else {
-                zone.setProgress(0);
-                zone.setAmount(Math.max(0, Math.ceil(stand.cost - stand.paid)));
+                zone.setProgress(stand.cost > 0 ? stand.paid / stand.cost : 1);
+                zone.setAmount(stand.cost);
                 zone.setLocked(this._state.money < stand.cost - stand.paid);
             }
             zone.update(dt);
@@ -568,10 +622,49 @@ export class FarmScene extends Scene {
             till.update(dt);
         }
 
-        // Standing at a stall — either side of it — puts the kukri away. Serving
-        // and sweeping the takings are counter work, not field work.
-        this._player.stowTool =
-            this._shopZones.some(z => z.occupied) || this._collectZones.some(t => t.occupied);
+        // The kukri comes out in the crop and nowhere else. It used to be the
+        // other way round — carried everywhere and stowed at a stall — which
+        // left the player walking the yard swinging a blade at nothing.
+        //
+        // The `midHarvest` guard is not optional: without it, stepping off the
+        // last row the instant a swing starts makes the blade disappear out of
+        // the middle of its own arc.
+        this._player.stowTool = !this._field.contains(x, z) && !this._player.midHarvest;
+        for (const hand of this._farmhands) {
+            hand.stowTool = !this._field.contains(hand.x, hand.z) && !hand.midHarvest;
+        }
+    }
+
+    /**
+     * Runs the clock down and decides the run.
+     *
+     * The WIN is tested before the timeout, and on `claimedCount` rather than
+     * `openCount`: a stall paid off on the last tick is still rising out of the
+     * ground when the clock hits zero, and that is a win the player earned.
+     */
+    private _advanceClock(dt: number): void {
+        if (this._phase !== 'running') return;
+        this._timeLeft = Math.max(0, this._timeLeft - dt);
+
+        const claimed = this._shops.claimedCount;
+        if (claimed >= RUN.targetShops) {
+            this._finish(true, `${claimed} stalls open with `
+                + `${Math.ceil(this._timeLeft)}s to spare`);
+            return;
+        }
+        if (this._timeLeft <= 0) {
+            this._finish(false, `${claimed} of ${RUN.targetShops} stalls open`);
+        }
+    }
+
+    private _finish(win: boolean, summary: string): void {
+        this._phase = 'over';
+        // Hand the controls back before the card goes up, or a finger already
+        // on the stick keeps steering a player nobody is updating.
+        this._joystick.setEnabled(false);
+        this._dropButton.setVisible(false);
+        this._hud.endRun();
+        this._gameOver.show(win, summary);
     }
 
     private _handlePlayerActions(dt: number, canTransfer: boolean): void {
@@ -615,16 +708,18 @@ export class FarmScene extends Scene {
             }
         }
 
-        // ── Takings pads: bank one stack of counter cash per tick ──
-        if (canTransfer) {
-            for (let i = 0; i < this._collectZones.length; i++) {
-                const till = this._collectZones[i];
-                if (!till.enabled || !till.occupied) continue;
-                if (this._shops.stands[i].collectTick(v => this._state.addMoney(v))) {
-                    // Counted here and not in ShopStand, so a hired shopkeeper
-                    // doing the rounds never retires the player's own tutorial.
-                    this._state.takingsBanked++;
-                }
+        // ── Takings pads: the player sweeps the whole counter at once ──
+        //
+        // Ungated by `canTransfer`: the tick existed to pace one stack at a
+        // time, and there is nothing left to pace. A hired shopkeeper still
+        // works stack by stack — see `ShopStand.collectAll`.
+        for (let i = 0; i < this._collectZones.length; i++) {
+            const till = this._collectZones[i];
+            if (!till.enabled || !till.occupied) continue;
+            if (this._shops.stands[i].collectAll(v => this._state.addMoney(v)) > 0) {
+                // Counted here and not in ShopStand, so a hired shopkeeper
+                // doing the rounds never retires the player's own tutorial.
+                this._state.takingsBanked++;
             }
         }
 
@@ -723,9 +818,18 @@ export class FarmScene extends Scene {
         this._state.toast(kind === 'carrot' ? 'Carrots dropped' : 'Crate dropped');
     }
 
-    /** Walking near a cash stack picks it up — no zone needed. */
+    /**
+     * Stepping onto the stake's pad takes the whole parcel.
+     *
+     * A pad test rather than the old radius sweep around the player. That swept
+     * up the nearest single bundle per frame, so collecting six of them meant
+     * walking a little lap of the block and the pickup rate was frame-rate
+     * bound. The pad is now cut to the parcel, so "reach the cash" and "have
+     * the cash" are one action.
+     */
     private _collectCashUnderfoot(): void {
-        const value = this._cash.collectNearest(this._player.x, this._player.z, 1.9);
+        if (!this._zones.startCash.occupied) return;
+        const value = this._cash.collectAll();
         if (value <= 0) return;
 
         this._state.addMoney(value);
@@ -734,7 +838,7 @@ export class FarmScene extends Scene {
         // that stall has a price like every other one, and is paid for by
         // standing on its plot. Opening it here handed the player a shop they
         // never bought and skipped the step that teaches how the others work.
-        if (this._cash.count === 0) this._zones.startCash.setEnabled(false);
+        this._zones.startCash.setEnabled(false);
     }
 
     private _context(): FarmContext {

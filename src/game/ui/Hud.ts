@@ -1,5 +1,5 @@
 import { GlobalEvents, Graphics, Label, Node, Scene, display } from 'noonengine';
-import { FONT_FAMILY, PILL, hudScale } from '../Config.ts';
+import { FONT_FAMILY, PILL, RUN, hudScale } from '../Config.ts';
 import { C } from '../Palette.ts';
 import type { GameState, Objective } from '../GameState.ts';
 
@@ -9,10 +9,37 @@ const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
 /** Pixels per icon unit when rebuilding the `money` pad glyph in the pill. */
 const GLYPH_UNIT = 48;
 
-/** Stock panel: three stacked stats in the top-left corner. */
-const STOCK = { w: 196, h: 108, pad: 18, line: 32 };
-/** Margin from the visible rect's corners, shared by both panels. */
+/** Margin from the visible rect's corners, shared by both pills. */
 const MARGIN = 22;
+
+/** Colour of the countdown, and what it turns under `RUN.warnAt`. */
+const TIME_OK = '#ffffff';
+const TIME_LOW = '#ff6b5e';
+
+/**
+ * Cash, shortened past four digits — `12.3K` rather than `12340`.
+ *
+ * The pill is sized for four digits and the run is short enough that a good one
+ * blows through them; a fifth digit either overflowed the pill or forced it
+ * wider than the DROP button it is meant to pair with.
+ *
+ * Truncated, not rounded: `toFixed(1)` turns 999,950 into `1000.0K`, which is
+ * both wrong-looking and wider than the case it exists to prevent.
+ */
+const formatMoney = (n: number): string => {
+    const v = Math.floor(n);
+    if (v < 10_000) return String(v);
+    for (const [unit, div] of [['B', 1e9], ['M', 1e6], ['K', 1e3]] as const) {
+        if (v >= div) return `${Math.floor(v / (div / 10)) / 10}${unit}`;
+    }
+    return String(v);
+};
+
+/** `90` → `1:30`. Rounds UP, so the clock only shows 0:00 when time is out. */
+const formatTime = (seconds: number): string => {
+    const t = Math.max(0, Math.ceil(seconds));
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+};
 
 const OBJECTIVE_TEXT: Record<Objective, string> = {
     'collect-start-cash': 'Grab the cash!',
@@ -36,9 +63,9 @@ const OBJECTIVE_TEXT: Record<Objective, string> = {
  */
 export class Hud {
     private _moneyLabel: Label;
+    private _timeLabel: Label;
     private _objectiveLabel: Label;
     private _objectiveShadow: Label;
-    private _stockLabels: Label[] = [];
     private _toastLabel: Label;
     private _toastNode: Node;
     private _toastTimer = 0;
@@ -47,9 +74,11 @@ export class Hud {
     private _s = 1;
     private _pill: Node;
     private _objWrap: Node;
-    private _stockPill: Node;
+    private _timePill: Node;
     /** Baseline Y of the toast, recomputed on resize; the rise animation offsets from it. */
     private _toastBaseY = 0;
+    /** Set once the run is decided — see `endRun`. */
+    private _runOver = false;
 
     constructor(scene: Scene, state: GameState) {
         this._s = hudScale();
@@ -108,33 +137,35 @@ export class Hud {
             lbl.textAlign = 'center';
         }
 
-        // ── Stock panel, top-left: three stats stacked, not one long line ──
-        const stockPill = new Node();
-        this._stockPill = stockPill;
-        const stockGfx = stockPill.addComponent(Graphics);
-        stockGfx.setLineWidth(px(PILL.stroke));
-        stockGfx.drawRoundedRectangle(px(STOCK.w), px(STOCK.h), px(20), '#5a3a22', '#c9a15e');
-        stockPill.zIndex = 999;
-        scene.addChild(stockPill);
+        // ── Countdown pill, top-left ──
+        //
+        // Where the hopper/racks/sold readout used to be. Those three numbers
+        // were reference material for an open-ended idle game; in a ninety
+        // second dash the only number that changes the player's next decision
+        // is how long is left, and it earns the corner outright.
+        //
+        // Deliberately the SAME pill as the money counter, mirrored across the
+        // top of the screen: the two things the run is scored on, one either
+        // side. The stock panel was a different width, height and corner radius.
+        const timePill = new Node();
+        this._timePill = timePill;
+        const timeGfx = timePill.addComponent(Graphics);
+        timeGfx.setLineWidth(px(PILL.stroke));
+        timeGfx.drawRoundedRectangle(px(PILL.w), px(PILL.h), px(PILL.h / 2), '#5a3a22', '#c9a15e');
+        timePill.zIndex = 999;
+        scene.addChild(timePill);
 
-        for (let i = 0; i < 3; i++) {
-            // Anchor each line's LEFT edge, not its centre — a left-aligned
-            // label still straddles its own position otherwise, so the three
-            // would step in and out as their values changed width.
-            const line = new Node(px(-STOCK.w / 2 + STOCK.pad), px((1 - i) * STOCK.line));
-            line.anchorX = 0;
-            const label = line.addComponent(Label);
-            label.text = '';
-            label.fontFamily = FONT_FAMILY;
-            label.fontSize = px(24);
-            label.fontWeight = 700;
-            label.color = '#ffffff';
-            label.textAlign = 'left';
-            // Counters change every frame they tick — bake synchronously.
-            label.dynamic = true;
-            this._stockLabels.push(label);
-            stockPill.addChild(line);
-        }
+        const timeNode = new Node(0, 0);
+        this._timeLabel = timeNode.addComponent(Label);
+        this._timeLabel.text = formatTime(RUN.duration);
+        this._timeLabel.fontFamily = FONT_FAMILY;
+        this._timeLabel.fontSize = px(30);
+        this._timeLabel.fontWeight = 800;
+        this._timeLabel.color = TIME_OK;
+        this._timeLabel.textAlign = 'center';
+        // Ticks every second — bake synchronously, like the money counter.
+        this._timeLabel.dynamic = true;
+        timePill.addChild(timeNode);
 
         // ── Toast ──
         this._toastNode = new Node();
@@ -150,7 +181,7 @@ export class Hud {
 
         // ── Wire up state signals ──
         state.events.on('money', (e: { money: number }) => {
-            this._moneyLabel.text = String(Math.floor(e.money));
+            this._moneyLabel.text = formatMoney(e.money);
         }, this);
 
         state.events.on('objective', (e: { objective: Objective }) => {
@@ -165,7 +196,7 @@ export class Hud {
             this._toastNode.setScale(1, 1);
         }, this);
 
-        this._moneyLabel.text = String(state.money);
+        this._moneyLabel.text = formatMoney(state.money);
 
         this._layout();
         display.emitter.on(GlobalEvents.RESIZE, this._layout, this);
@@ -226,26 +257,45 @@ export class Hud {
             y: top - (PILL.h / 2 + MARGIN) * s,
         });
         this._objWrap.setPosition({ x: centerX, y: top - 200 * s });
-        this._stockPill.setPosition({
-            x: left + (STOCK.w / 2 + MARGIN) * s,
-            y: top - (STOCK.h / 2 + MARGIN) * s,
+        // Mirrors the money pill across the top edge.
+        this._timePill.setPosition({
+            x: left + (PILL.w / 2 + MARGIN) * s,
+            y: top - (PILL.h / 2 + MARGIN) * s,
         });
 
         this._toastBaseY = r.y + r.height * 0.62;
         this._toastNode.setPosition({ x: centerX, y: this._toastBaseY });
     }
 
-    /** Refreshes the per-frame readouts. */
-    update(dt: number, state: GameState, rackCount: number, rackCapacity: number): void {
-        this._stockLabels[0].text = `Hopper ${state.carrotsQueued}`;
-        this._stockLabels[1].text = `Racks ${rackCount}/${rackCapacity}`;
-        this._stockLabels[2].text = `Sold ${state.totalSold}`;
+    /**
+     * Retires the tutorial objective line for good.
+     *
+     * The line is an instruction for a run in progress, and the result card
+     * covers the middle of the screen — leaving "Grab the cash!" hanging over
+     * YOU WIN! reads as the game still asking for something.
+     */
+    endRun(): void {
+        this._runOver = true;
+    }
 
+    /**
+     * Shows the time left on the clock.
+     *
+     * Written every frame without a guard: `Label.text` short-circuits when the
+     * string is unchanged, so the bitmap is only ever rebaked on the second.
+     */
+    setTime(secondsLeft: number): void {
+        this._timeLabel.text = formatTime(secondsLeft);
+        this._timeLabel.color = secondsLeft <= RUN.warnAt ? TIME_LOW : TIME_OK;
+    }
+
+    /** Refreshes the per-frame readouts. */
+    update(dt: number, state: GameState): void {
         // The objective line is a tutorial aid like the two navigation cues, and
         // retires with them: past the first full cycle it is derived fresh every
         // frame from whatever the game most wants next, so it flickers between
         // errands rather than instructing.
-        this._objWrap.active = !state.tutorialDone;
+        this._objWrap.active = !state.tutorialDone && !this._runOver;
 
         if (this._toastTimer > 0) {
             this._toastTimer -= dt;

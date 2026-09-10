@@ -8,7 +8,7 @@ import { mergeStaticInPlace } from '../world/MergeStatic.ts';
 import type { CarryLoad } from '../world/CarryLoad.ts';
 import { at, rot } from '../procgen/Primitives.ts';
 import { makeBunting, makeConstructionFrame, makeShop } from '../procgen/Structures.ts';
-import { CashField } from './Cash.ts';
+import { CashField, ShrinkAway } from './Cash.ts';
 import { CustomerQueue, type QueueLayout } from './CustomerQueue.ts';
 import type { GameState } from '../GameState.ts';
 
@@ -57,6 +57,12 @@ export class ShopStand {
     private _till: Array<{ obj: THREE.Group; value: number }> = [];
     private _tillSlots: THREE.Vector3[] = [];
     private _tillPool: THREE.Group[] = [];
+    /** Bundles the player has just swept, on their way out. See `collectAll`. */
+    private _shrinking = new ShrinkAway(obj => {
+        this.group.remove(obj);
+        obj.visible = false;
+        this._tillPool.push(obj);
+    });
     /** Handle into the shared obstacle field; reshaped when the stall is built. */
     private _colliderId: number;
 
@@ -184,6 +190,26 @@ export class ShopStand {
         return true;
     }
 
+    /**
+     * Clears the whole counter in one go, and what the PLAYER's sweep uses.
+     *
+     * `collectTick` above is left as it is on purpose: it is also the hired
+     * shopkeeper's sweep, and one stack per tick is what makes an automated
+     * stall visibly work through its takings rather than teleport them. The
+     * player is standing right there and should not have to loiter.
+     */
+    collectAll(credit: (value: number) => void): number {
+        if (!this.isOpen) return 0;
+        let total = 0;
+        for (const entry of this._till) {
+            total += entry.value;
+            this._shrinking.add(entry.obj, TILL_SCALE);
+        }
+        this._till.length = 0;
+        if (total > 0) credit(total);
+        return total;
+    }
+
     /** Takes one stack of cash off the counter. Returns its value, or 0. */
     collectTill(): number {
         const entry = this._till.pop();
@@ -224,6 +250,7 @@ export class ShopStand {
     update(dt: number): void {
         this.queue.update(dt);
         this.stock.update(dt);
+        this._shrinking.update(dt);
         if (!this._building) return;
 
         this._raise = Math.min(1, this._raise + dt * 1.1);
@@ -345,6 +372,17 @@ export class ShopRow {
     get anyOpen(): boolean { return this.stands.some(s => s.isOpen); }
 
     get openCount(): number { return this.stands.filter(s => s.isOpen).length; }
+
+    /**
+     * Stalls open OR still rising out of the ground.
+     *
+     * What the run's win condition counts. `isOpen` stays false for the ~0.9s
+     * raise animation, so a stall paid off in the last second of the clock
+     * would otherwise be scored as a stall the player never opened.
+     */
+    get claimedCount(): number {
+        return this.stands.filter(s => s.isOpen || s.isBuilding).length;
+    }
 
     /** The open stand nearest a point — where an assistant should head. */
     nearestOpen(x: number, z: number): ShopStand | null {

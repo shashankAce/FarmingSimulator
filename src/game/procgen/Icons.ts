@@ -265,6 +265,16 @@ function digitTexture(): THREE.CanvasTexture {
     return digitAtlas;
 }
 
+/**
+ * Alpha the glyph is cut out at. Named because `setOpacity` has to scale it:
+ * Three folds the material's `opacity` into the fragment's alpha BEFORE the
+ * alpha test, so a readout faded to 0.3 against a fixed 0.35 threshold has
+ * every one of its fragments discarded and the digits vanish outright. Scaling
+ * the threshold by the same factor makes the test `mapAlpha < ALPHA_TEST`
+ * again, so coverage is identical at any opacity.
+ */
+const ALPHA_TEST = 0.35;
+
 /** World height of one digit, and the cell width that follows from the atlas. */
 const DIGIT_H = 0.86;
 const DIGIT_W = DIGIT_H * (ATLAS_CELL / ATLAS_HEIGHT);
@@ -301,7 +311,7 @@ export class FlatNumber {
             transparent: true,
             // Cuts the glyph out rather than blending it, which keeps the edges
             // crisp and keeps these decals out of the transparent sort order.
-            alphaTest: 0.35,
+            alphaTest: ALPHA_TEST,
             color, emissive: color, emissiveIntensity: 0.35,
         });
 
@@ -331,10 +341,17 @@ export class FlatNumber {
         this.group.visible = false;
     }
 
-    /** Repaints every digit — a readout on a locked pad has to look locked. */
-    setColor(color: number): void {
-        this._mat.color.setHex(color);
-        this._mat.emissive.setHex(color);
+    /**
+     * Fades the whole readout — how a pad that cannot be afforded yet shows its
+     * price (see `Zone.setLocked`).
+     *
+     * `alphaTest` moves with the opacity, and must: see `ALPHA_TEST`. Setting
+     * `opacity` alone here is the one change that looks like it works and does
+     * not — the digits do not dim, they disappear.
+     */
+    setOpacity(alpha: number): void {
+        this._mat.opacity = alpha;
+        this._mat.alphaTest = ALPHA_TEST * alpha;
     }
 
     /** `null` hides the readout. Values are floored and clamped to the cell count. */

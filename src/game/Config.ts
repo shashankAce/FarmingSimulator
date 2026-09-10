@@ -154,8 +154,19 @@ export interface PadSize {
  * The progress fill always rises up the screen along `d`, whatever the shape.
  */
 export const ZONE = {
-    /** Starting cash on the ground — the first thing the player picks up. */
-    startCash: { w: 4.4, d: 3.0 } as PadSize,
+    /**
+     * The starting-cash pad is the one pad NOT sized here.
+     *
+     * It is derived from the block of notes actually lying on it — see
+     * `cashGridFootprint()` in `stations/Cash.ts` — because the whole point of
+     * that pad now is that it is exactly the parcel the player walks onto to
+     * take the lot. A fixed size drifted from the grid the moment
+     * `ECONOMY.startCashPiles` was tuned, leaving a 4.4x3.0 pad round a block
+     * half that wide. This is the breathing room left round the notes on each
+     * side; the trigger is a POINT test on the player's centre, so it also has
+     * to be enough that the pad cannot be walked past.
+     */
+    startCashMargin: 0.4,
     /** Tip carrots into the juicer. */
     juicerIn: { w: 3.8, d: 3.0 } as PadSize,
     /** Lift a filled rack off the stand. */
@@ -205,7 +216,7 @@ export const PLANT = {
  */
 export const STATIONS = {
     /** Starting cash on the ground — the first thing the player ever picks up. */
-    startCash: { x: 3, z: 5, ...ZONE.startCash, icon: 'money' as IconKind },
+    startCash: { x: 3, z: 5, icon: 'money' as IconKind },
     /** The machine body itself (not walkable). */
     juicer: { x: PLANT.origin.x, z: PLANT.origin.z },
     /** Drop carrots here to feed the juicer. */
@@ -809,6 +820,31 @@ export const DEV = {
      * sold while this is on, and assistants will harvest forever.
      */
     freezeCarry: false,
+};
+
+/**
+ * ─── THE RUN ─────────────────────────────────────────────────────────────────
+ * One game is a timed dash: open `targetShops` stalls before the clock runs
+ * out. The clock does not start with the scene — it starts on the player's
+ * first movement input, so a player still reading the objective is not being
+ * charged for it.
+ *
+ * These four numbers are the whole difficulty curve, along with `SHOPS[n].cost`
+ * and `ECONOMY.bottleValue` below: the run is won by earning the second stall's
+ * price, so its cost and the value of a bottle set the pace as directly as the
+ * duration does.
+ */
+export const RUN = {
+    /** Seconds on the clock. */
+    duration: 90,
+    /**
+     * Stalls open to win. Counted as open-OR-RAISING: a stall paid off in the
+     * last second is still mid-animation when the clock stops, and that is a
+     * win, not a near miss.
+     */
+    targetShops: 2,
+    /** The timer pill turns red under this many seconds. */
+    warnAt: 10,
 };
 
 export const ECONOMY = {

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { C } from '../Palette.ts';
 import { at, plane, rot } from '../procgen/Primitives.ts';
 import { FlatNumber, makeFlatIcon, makeWorldText, type IconKind } from '../procgen/Icons.ts';
 import { mergeStaticInPlace } from './MergeStatic.ts';
@@ -14,12 +13,17 @@ const IDLE = 0xffffff;
  */
 const SOLID = 0x000000;
 /**
- * Fill and outline of a pad the player cannot yet afford. Grey and inert: it
- * still shows what it is and what it costs, but standing on it does nothing and
- * it does not light up, so there is no invitation to sink money into a purchase
- * that cannot complete.
+ * How far a pad the player cannot yet afford is faded.
+ *
+ * Faded, not greyed. Both say "inert", and the pad is: standing on one does
+ * nothing and it does not light up, so there is no invitation to sink money
+ * into a purchase that cannot complete. But washing the colour out meant a
+ * locked pad's pictogram was a grey shape on grey markings and you could no
+ * longer tell WHICH purchase you could not afford. Dropping the alpha keeps
+ * every colour intact — the icon still reads as a farmhand or a shop — and the
+ * pad simply recedes.
  */
-const LOCKED = C.STONE;
+const LOCKED_ALPHA = 0.3;
 /**
  * The progress fill. Deliberately a blue-leaning emerald: the obvious "green"
  * for a fill bar lands right on top of the grass it is drawn over (`C.GRASS` is
@@ -52,24 +56,19 @@ const NOTICE = 0xe4574f;
 const NOTICE_Y = 1.5;
 const NOTICE_BOB = 0.12;
 
-/** Money readout. One colour on every pad, pale or solid. */
+/** Money readout. One colour on every pad, locked or not — see `LOCKED_ALPHA`. */
 const AMOUNT = 0xffffff;
 /**
  * Share of the pad's width the readout may use. Was half, which left a 1.7-wide
  * pad showing its price at a third of the height it had room for.
  */
 const AMOUNT_FIT = 0.86;
-/** Readout on a pad that cannot be afforded yet. */
-const AMOUNT_LOCKED = 0x9a96a0;
-/** How far the pictogram is washed toward `LOCKED` while the pad is locked. */
-const LOCKED_WASH = 0.8;
 
 // Prebuilt, because `update()` runs for every pad every frame and building
 // Colors there churns two allocations per zone per frame for nothing.
 const C_IDLE = new THREE.Color(IDLE);
 const C_HIGHLIGHT = new THREE.Color(HIGHLIGHT);
 const C_SOLID = new THREE.Color(SOLID);
-const C_LOCKED = new THREE.Color(LOCKED);
 const C_SCRATCH = new THREE.Color();
 
 /**
@@ -159,8 +158,14 @@ export class Zone {
     private _icon: THREE.Group | null = null;
     private _amount: FlatNumber | null = null;
     private _notice: THREE.Group | null = null;
-    /** Pictogram materials and their real tints, so locking can wash them out. */
-    private _iconMats: Array<{ m: THREE.MeshLambertMaterial; base: THREE.Color }> = [];
+    /**
+     * Every material whose alpha the lock fades, with the opacity it shows
+     * unlocked — the outline, the progress fill and each pictogram tint. The
+     * floor fill is deliberately NOT in here: `update()` recomputes its opacity
+     * from the glow every frame, so it folds `_lockAlpha` in there instead.
+     */
+    private _alphaMats: Array<{ m: THREE.Material; base: number }> = [];
+    private _lockAlpha = 1;
     private _noticeT = 0;
     private _amountZ = 0;
     private _solid = false;
@@ -213,7 +218,11 @@ export class Zone {
         //
         // Merged by translating each side's box into place and concatenating,
         // which is the same trick `world/MergeStatic.ts` plays on the scenery.
-        this._edgeMat = new THREE.MeshBasicMaterial({ color: IDLE });
+        // `transparent` is set HERE and never touched again, even though the
+        // pad starts fully opaque: flipping it at runtime makes Three rebuild
+        // the shader program, so the first pad to lock would hitch the frame.
+        this._edgeMat = new THREE.MeshBasicMaterial({ color: IDLE, transparent: true });
+        this._alphaMats.push({ m: this._edgeMat, base: 1 });
         const sides = edges.map(([ew, ed, ex, ez]) =>
             new THREE.BoxGeometry(ew, 0.07, ed).translate(ex, 0.05, ez));
         const border = mergeGeometries(sides);
@@ -250,9 +259,11 @@ export class Zone {
             // Pivot on the near (screen-bottom) edge and extend backwards, so
             // scaling Z grows up the screen.
             barGeo.translate(0, 0, -0.5);
-            this._progressBar = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({
+            const barMat = new THREE.MeshBasicMaterial({
                 color: PROGRESS, transparent: true, opacity: 0.72,
-            }));
+            });
+            this._alphaMats.push({ m: barMat, base: 0.72 });
+            this._progressBar = new THREE.Mesh(barGeo, barMat);
             this._progressBar.castShadow = false;
             this._progressBar.receiveShadow = false;
             this._progressBar.visible = false;
@@ -270,11 +281,14 @@ export class Zone {
             // setScalar here would silently throw that away.
             icon.scale.multiplyScalar(Math.min(w, d) * 0.62);
             this._icon = icon;
+            // After `mergeFlatIcon`, so this collects the SHARED material per
+            // colour rather than one entry per original shape.
             icon.traverse(o => {
                 const mesh = o as THREE.Mesh;
                 if (!mesh.isMesh) return;
                 const m = mesh.material as THREE.MeshLambertMaterial;
-                this._iconMats.push({ m, base: m.color.clone() });
+                m.transparent = true;   // set once, at build time — see `_edgeMat`
+                this._alphaMats.push({ m, base: 1 });
             });
             g.add(icon);
         }
@@ -371,24 +385,22 @@ export class Zone {
     }
 
     /**
-     * Greys the pad out and stops it lighting up. See `LOCKED`.
+     * Fades the pad out and stops it lighting up. See `LOCKED_ALPHA`.
      *
-     * Washes the pictogram and the price as well as the outline and floor.
-     * Greying only the markings was not enough: the icon kept its full colours
-     * and the price stayed white, which are the two brightest things on the
-     * pad, so an unaffordable one still read as live from any distance and only
-     * gave itself away up close by refusing to light up.
+     * Fades the pictogram and the price as well as the outline and floor.
+     * Dimming only the markings was not enough: the icon and the price are the
+     * two brightest things on a pad, so an unaffordable one left at full
+     * strength still read as live from any distance and only gave itself away
+     * up close by refusing to light up.
      */
     setLocked(on: boolean): void {
         if (this._locked === on) return;
         this._locked = on;
+        this._lockAlpha = on ? LOCKED_ALPHA : 1;
 
-        for (const { m, base } of this._iconMats) {
-            m.color.copy(base);
-            if (on) m.color.lerp(C_LOCKED, LOCKED_WASH);
-            m.emissive.copy(m.color);
-        }
-        this._amount?.setColor(on ? AMOUNT_LOCKED : AMOUNT);
+        for (const { m, base } of this._alphaMats) m.opacity = base * this._lockAlpha;
+        // Not a plain opacity assignment — see `FlatNumber.setOpacity`.
+        this._amount?.setOpacity(this._lockAlpha);
     }
 
     /** True while the pad is showing as unaffordable. */
@@ -411,15 +423,16 @@ export class Zone {
         const target = this.occupied && !this._locked ? 1 : 0;
         this._glow += (target - this._glow) * Math.min(1, dt * 10);
 
-        const color = C_SCRATCH.copy(this._locked ? C_LOCKED : C_IDLE)
-            .lerp(C_HIGHLIGHT, this._glow);
+        const color = C_SCRATCH.copy(C_IDLE).lerp(C_HIGHLIGHT, this._glow);
         this._edgeMat.color.copy(color);
         // The outline still lights up on a solid pad; only the floor stays dark,
         // otherwise an open shop gives no feedback for standing on it.
         this._fillMat.color.copy(this._solid ? C_SOLID : color);
-        this._fillMat.opacity = this._solid
+        // The lock factor multiplies in here rather than being assigned in
+        // `setLocked`, because this line runs every frame and would overwrite it.
+        this._fillMat.opacity = this._lockAlpha * (this._solid
             ? 0.4 + this._glow * 0.16
-            : 0.22 + this._glow * 0.3;
+            : 0.22 + this._glow * 0.3);
 
         if (this._notice?.visible) {
             // Bobbing, like the destination marker — a floating sign that hangs
