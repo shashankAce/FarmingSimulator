@@ -38,6 +38,8 @@ export class GameOverPanel {
     private static readonly BUTTON = { w: GAME_WIDTH - 140, h: 70, y: -72 };
     /** Inset the text keeps from the card's edges, for `Overflow.SHRINK`. */
     private static readonly TEXT_PAD = 22;
+    /** Draw layer. Everything else in this game sits at an effective 0. */
+    private static readonly Z = 2000;
 
     constructor(scene: Scene, onPlayAgain: () => void) {
         this._s = hudScale();
@@ -46,8 +48,15 @@ export class GameOverPanel {
         this._node = new Node();
         // Above every other HUD layer, including the toast at 1001 — nothing
         // should be able to draw over the result.
-        this._node.zIndex = 2000;
-        scene.addChild(this._node);
+        //
+        // Passed as `addChild`'s ARGUMENT, not assigned beforehand: `addChild`
+        // takes `(node, zIndex = 0)` and assigns that default over whatever the
+        // node was already carrying, so `node.zIndex = 2000` followed by a bare
+        // `addChild(node)` silently resolves to 0 and the layer falls back to
+        // insertion order. That is exactly how a shopper's order bubble — a 2D
+        // node created lazily, long after this card was built — ended up drawn
+        // over the result and its backdrop.
+        scene.addChild(this._node, GameOverPanel.Z);
 
         // Backdrop: a `ColorRect`, which fills its node's box, so covering a
         // resized screen is two number assignments in `_layout` rather than a
@@ -56,8 +65,8 @@ export class GameOverPanel {
         this._shade = new Node();
         const shade = this._shade.addComponent(ColorRect);
         shade.color = 'rgba(18, 10, 4, 0.62)';
-        this._shade.zIndex = 0;
-        this._node.addChild(this._shade);
+        // Depths passed as arguments here too, for the same reason as above.
+        this._node.addChild(this._shade, 0);
 
         const { PANEL, BUTTON } = GameOverPanel;
 
@@ -66,8 +75,7 @@ export class GameOverPanel {
         cardGfx.setLineWidth(px(PILL.stroke * 1.5));
         cardGfx.drawRoundedRectangle(
             px(PANEL.w), px(PANEL.h), px(PANEL.radius), '#5a3a22', '#c9a15e');
-        card.zIndex = 1;
-        this._node.addChild(card);
+        this._node.addChild(card, 1);
 
         // Both text lines are `Overflow.SHRINK` inside the card's width: the
         // summary is assembled from live numbers ("2 stalls open, 78s to

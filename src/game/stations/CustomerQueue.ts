@@ -295,7 +295,6 @@ export class CustomerQueue {
         if (reused) return reused;
 
         const root = new Node();
-        root.zIndex = 950;
 
         const bg = new Node();
         const gfx = bg.addComponent(Graphics);
@@ -326,7 +325,12 @@ export class CustomerQueue {
         root.addChild(labelNode);
 
         root.setPosition({ x: -9999, y: -9999 });
-        this._scene.addChild(root);
+        // The depth goes through `addChild`, which would otherwise assign its
+        // own default of 0 over anything set on the node beforehand. It matters
+        // here more than anywhere: bubbles are pooled and created on demand, so
+        // an insertion-ordered layer puts them on top of every screen built
+        // before the first shopper walked up — the game-over card included.
+        this._scene.addChild(root, 950);
 
         return { root, label };
     }
