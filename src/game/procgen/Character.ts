@@ -123,6 +123,28 @@ export const SELLER_COLORS: CharacterColors = {
     outfit: 0x3fa88f, outfitDark: 0x2f8571,
 };
 
+/**
+ * Every character mesh opts OUT of the game's default flat shading (see `mat`
+ * in `Primitives.ts`). With interpolated vertex normals the light rolls
+ * continuously across the skull, torso and limbs instead of breaking at every
+ * triangle — hard facets over a curved body are what made the character read
+ * as edgy at this camera distance, even after the geometry got rounder.
+ *
+ * It costs nothing that matters. Draw calls are unchanged: `mat` caches the
+ * smooth variant under its own key, so every part of a given colour still
+ * shares one material and the per-part merge collapses to one mesh per colour
+ * exactly as before. The fragment work is, if anything, slightly lower than
+ * flat shading's derivative-computed normals, and the extra segments below
+ * are a couple of thousand triangles per character — negligible next to the
+ * village, and merged at build time either way.
+ *
+ * Boxes pass it too: their normals are per-face either way, so they render
+ * identically while staying in the SAME material bucket as the rounded pieces
+ * beside them — an outfit-coloured strap left flat would split the overalls
+ * into a second draw call for no visual gain.
+ */
+const SMOOTH = { flat: false };
+
 /** Builds one character. Scale is roughly 1.9 world units tall including ears. */
 export function makeCharacter(col: CharacterColors): CharacterRig {
     const root = new THREE.Group();
@@ -130,42 +152,42 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     root.add(body);
 
     // ── Torso: a squashed sphere, with dungarees over the lower half ──
-    const torso = at(sphere(0.52, col.fur, 10), 0, 0.72, 0);
+    const torso = at(sphere(0.52, col.fur, 20, SMOOTH), 0, 0.72, 0);
     scl(torso, 1, 1.15, 0.92);
     body.add(torso);
 
-    const overalls = at(cyl(0.46, 0.52, 0.62, 10, col.outfit), 0, 0.52, 0);
+    const overalls = at(cyl(0.46, 0.52, 0.62, 16, col.outfit, SMOOTH), 0, 0.52, 0);
     body.add(overalls);
     // Straps.
     for (const x of [-0.22, 0.22]) {
-        body.add(at(box(0.12, 0.46, 0.1, col.outfit), x, 0.95, 0.4));
+        body.add(at(box(0.12, 0.46, 0.1, col.outfit, SMOOTH), x, 0.95, 0.4));
     }
-    body.add(at(box(0.42, 0.3, 0.1, col.outfitDark), 0, 0.9, 0.44));
+    body.add(at(box(0.42, 0.3, 0.1, col.outfitDark, SMOOTH), 0, 0.9, 0.44));
 
     // ── Head ──
     const head = new THREE.Group();
     at(head, 0, 1.32, 0);
     body.add(head);
 
-    const skull = sphere(0.46, col.fur, 12);
+    const skull = sphere(0.46, col.fur, 20, SMOOTH);
     scl(skull, 1, 0.94, 0.94);
     head.add(skull);
 
     // Snout, nose, buck teeth.
-    const snout = at(sphere(0.26, col.snout, 10), 0, -0.08, 0.36);
+    const snout = at(sphere(0.26, col.snout, 14, SMOOTH), 0, -0.08, 0.36);
     scl(snout, 1.2, 0.85, 0.9);
     head.add(snout);
-    head.add(at(sphere(0.09, C.EYE, 6), 0, 0.02, 0.58));
-    head.add(at(box(0.16, 0.16, 0.06, 0xffffff), 0, -0.2, 0.52));
+    head.add(at(sphere(0.09, C.EYE, 8, SMOOTH), 0, 0.02, 0.58));
+    head.add(at(box(0.16, 0.16, 0.06, 0xffffff, SMOOTH), 0, -0.2, 0.52));
 
     // Eyes.
     for (const x of [-0.19, 0.19]) {
-        head.add(at(sphere(0.075, C.EYE, 8), x, 0.12, 0.4));
+        head.add(at(sphere(0.075, C.EYE, 10, SMOOTH), x, 0.12, 0.4));
     }
 
     // Cheeks.
     for (const x of [-0.32, 0.32]) {
-        head.add(at(scl(sphere(0.1, col.furDark, 6), 1, 0.7, 0.6), x, -0.06, 0.3));
+        head.add(at(scl(sphere(0.1, col.furDark, 8, SMOOTH), 1, 0.7, 0.6), x, -0.06, 0.3));
     }
 
     // ── Ears: pivot at the base so they can flop ──
@@ -174,8 +196,8 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     at(earL, -0.16, 0.36, 0);
     at(earR, 0.16, 0.36, 0);
     for (const [ear, sign] of [[earL, -1], [earR, 1]] as const) {
-        const outer = at(scl(sphere(0.15, col.fur, 8), 0.62, 2.5, 0.5), 0, 0.36, 0);
-        const inner = at(scl(sphere(0.15, col.snout, 8), 0.4, 2.2, 0.3), 0, 0.36, 0.05);
+        const outer = at(scl(sphere(0.15, col.fur, 12, SMOOTH), 0.62, 2.5, 0.5), 0, 0.36, 0);
+        const inner = at(scl(sphere(0.15, col.snout, 12, SMOOTH), 0.4, 2.2, 0.3), 0, 0.36, 0.05);
         ear.add(outer, inner);
         rot(ear, -0.1, 0, sign * 0.18);
         head.add(ear);
@@ -194,8 +216,8 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
         // leave `y` at 0 (the walk cycle, the carry pose) are unaffected: with
         // no Y term the two orders are the same matrix.
         arm.rotation.order = 'YXZ';
-        const upper = at(cyl(0.13, 0.12, 0.42, 6, col.fur), 0, -0.21, 0);
-        const paw = at(sphere(0.15, col.fur, 8), 0, -0.46, 0);
+        const upper = at(cyl(0.13, 0.12, 0.42, 10, col.fur, SMOOTH), 0, -0.21, 0);
+        const paw = at(sphere(0.15, col.fur, 12, SMOOTH), 0, -0.46, 0);
         arm.add(upper, paw);
         body.add(arm);
     }
@@ -206,9 +228,9 @@ export function makeCharacter(col: CharacterColors): CharacterRig {
     at(legL, -0.21, HIP_Y, 0);
     at(legR, 0.21, HIP_Y, 0);
     for (const leg of [legL, legR]) {
-        leg.add(at(cyl(0.15, 0.135, LEG_LEN, 6, col.outfitDark), 0, -LEG_LEN / 2, 0));
+        leg.add(at(cyl(0.15, 0.135, LEG_LEN, 10, col.outfitDark, SMOOTH), 0, -LEG_LEN / 2, 0));
         // Foot, pushed forward so the silhouette reads even from directly above.
-        leg.add(at(scl(sphere(0.17, col.furDark, 8), 1, 0.65, 1.5), 0, -LEG_LEN, 0.08));
+        leg.add(at(scl(sphere(0.17, col.furDark, 12, SMOOTH), 1, 0.65, 1.5), 0, -LEG_LEN, 0.08));
         body.add(leg);
     }
     body.position.y = BODY_Y;
