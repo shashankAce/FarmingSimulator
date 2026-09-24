@@ -257,7 +257,7 @@ export class Hud {
             x: right - (PILL.w / 2 + MARGIN) * s,
             y: top - (PILL.h / 2 + MARGIN) * s,
         });
-        this._objWrap.setPosition({ x: centerX, y: top - 200 * s });
+        this._objWrap.setPosition({ x: centerX, y: top - 100 * s });
         // Mirrors the money pill across the top edge.
         this._timePill.setPosition({
             x: left + (PILL.w / 2 + MARGIN) * s,

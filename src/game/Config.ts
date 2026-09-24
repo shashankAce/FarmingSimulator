@@ -9,8 +9,8 @@
 import { display } from 'noonengine';
 import type { IconKind } from './procgen/Icons.ts';
 
-export const GAME_WIDTH = 390;
-export const GAME_HEIGHT = 720;
+export const GAME_WIDTH = 720;
+export const GAME_HEIGHT = 1280;
 
 /**
  * ─── BOUNDARY ────────────────────────────────────────────────────────────────
@@ -907,8 +907,8 @@ export const MACHINE = {
 /** Camera rig — a fixed offset that follows the player, giving the reference's ~50° tilt. */
 export const CAMERA = {
     offsetX: 0,
-    offsetY: 17,
-    offsetZ: 14,
+    offsetY: 15,
+    offsetZ: 16,
     // vFOV; the horizontal spread follows the design aspect
     // (hFOV = 2*atan(tan(vFOV/2) * GAME_WIDTH/GAME_HEIGHT)). At the landscape
     // 1280x720 this shows roughly 38 x 21 world units around the player —
